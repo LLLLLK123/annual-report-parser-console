@@ -291,10 +291,197 @@ const realFinancialTargetTables = [
   },
 ]
 
+const realFinancialFullResultTree = [
+  {
+    id: 'real-tree-1',
+    title: '第一节 重要提示、目录和释义',
+    pageRange: '1-8',
+    location: '第一节 重要提示、目录和释义',
+    type: 'text',
+    markdown: `# 第一节 重要提示、目录和释义
+
+本节包含年报整体说明、风险提示、目录结构与术语释义，可用于演示完整目录树中的文字节点。
+
+## 重要提示
+
+公司董事会、监事会及董事、监事、高级管理人员保证年度报告内容真实、准确、完整，不存在虚假记载、误导性陈述或者重大遗漏。
+
+## 目录概览
+
+1. 重要提示、目录和释义
+2. 公司简介和主要财务指标
+3. 董事会报告
+4. 经营情况讨论与分析
+5. 财务报告`,
+  },
+  {
+    id: 'real-tree-2',
+    title: '第四节 经营情况讨论与分析',
+    pageRange: '16-33',
+    location: '第四节 经营情况讨论与分析',
+    type: 'section',
+    markdown: `# 第四节 经营情况讨论与分析
+
+本章节主要覆盖主营业务、收入结构、区域市场、项目执行以及未来经营计划。
+
+## 经营概览
+
+报告期内公司围绕建筑装饰工程主业，持续推进重点项目交付、存量应收管理和现金流优化，同时加强对重点区域市场的资源配置。`,
+    children: [
+      {
+        id: 'real-tree-2-1',
+        title: '主营业务分析',
+        pageRange: '16-18',
+        location: '第四节 经营情况讨论与分析 / 主营业务分析',
+        type: 'table',
+        markdown: realFinancialRawTables[3].markdown,
+        targetCode: 'AN01_A',
+      },
+      {
+        id: 'real-tree-2-2',
+        title: '行业情况说明',
+        pageRange: '19-21',
+        location: '第四节 经营情况讨论与分析 / 行业情况说明',
+        type: 'text',
+        markdown: `## 行业情况说明
+
+报告期内公司继续聚焦建筑装饰工程主业，并围绕重点客户、重点区域推进项目执行与回款管理。
+
+### 市场环境
+
+建筑装饰行业整体竞争加剧，项目获取、履约效率、回款周期和精细化成本管理成为影响业绩表现的关键因素。
+
+### 公司应对
+
+- 强化重点客户深耕
+- 优化项目过程管控
+- 推进区域协同与组织提效
+- 加强风险识别与现金回收`,
+      },
+      {
+        id: 'real-tree-2-3',
+        title: '公司未来发展的展望',
+        pageRange: '28-30',
+        location: '第四节 经营情况讨论与分析 / 公司未来发展的展望',
+        type: 'text',
+        markdown: `## 公司未来发展的展望
+
+公司未来将继续围绕主业聚焦、现金流改善、项目质量提升和重点客户协同四条主线推进经营管理。
+
+### 重点方向
+
+1. 聚焦高质量项目获取
+2. 提升履约效率与交付能力
+3. 强化预算、结算与回款联动
+4. 推动核心区域和核心客户协同经营`,
+      },
+    ],
+  },
+  {
+    id: 'real-tree-3',
+    title: '第十二节 财务报告',
+    pageRange: '85-110',
+    location: '第十二节 财务报告',
+    type: 'section',
+    markdown: `# 第十二节 财务报告
+
+本章节包含审计报告、合并三大报表以及财务报表附注，是结构化抽取的核心来源。`,
+    children: [
+      {
+        id: 'real-tree-3-1',
+        title: '一、审计报告',
+        pageRange: '85-88',
+        location: '第十二节 财务报告 / 一、审计报告',
+        type: 'section',
+        markdown: `## 一、审计报告
+
+审计报告部分包括审计意见、形成意见的基础、关键审计事项以及管理层责任说明。
+
+注册会计师重点关注收入确认、合同履约进度、应收账款减值以及重大项目结算等事项。`,
+        children: [
+          {
+            id: 'real-tree-3-1-1',
+            title: '关键审计事项',
+            pageRange: '85-88',
+            location: '第十二节 财务报告 / 一、审计报告 / 关键审计事项',
+            type: 'table',
+            markdown: realFinancialRawTables[4].markdown,
+          },
+          {
+            id: 'real-tree-3-1-2',
+            title: '管理层和治理层对财务报表的责任',
+            pageRange: '87-88',
+            location: '第十二节 财务报告 / 一、审计报告 / 管理层和治理层对财务报表的责任',
+            type: 'text',
+            markdown: `### 管理层和治理层对财务报表的责任
+
+管理层负责按照企业会计准则编制财务报表，并设计、执行和维护必要的内部控制，以使财务报表不存在由于舞弊或错误导致的重大错报。`,
+          },
+        ],
+      },
+      {
+        id: 'real-tree-3-2',
+        title: '二、财务报表',
+        pageRange: '89-102',
+        location: '第十二节 财务报告 / 二、财务报表',
+        type: 'section',
+        markdown: `## 二、财务报表
+
+财务报表部分包含合并资产负债表、合并利润表和合并现金流量表。
+
+该部分是结构化提取的核心来源，涵盖三表主表字段以及附注、经营分析等延展表。`,
+        children: [
+          {
+            id: 'real-tree-3-2-1',
+            title: '合并资产负债表',
+            pageRange: '89-94',
+            location: '第十二节 财务报告 / 二、财务报表 / 合并资产负债表',
+            type: 'table',
+            markdown: realFinancialRawTables[0].markdown,
+            targetCode: 'AN14',
+          },
+          {
+            id: 'real-tree-3-2-2',
+            title: '合并利润表',
+            pageRange: '95-98',
+            location: '第十二节 财务报告 / 二、财务报表 / 合并利润表',
+            type: 'table',
+            markdown: realFinancialRawTables[1].markdown,
+            targetCode: 'AN15',
+          },
+          {
+            id: 'real-tree-3-2-3',
+            title: '合并现金流量表',
+            pageRange: '99-102',
+            location: '第十二节 财务报告 / 二、财务报表 / 合并现金流量表',
+            type: 'table',
+            markdown: realFinancialRawTables[2].markdown,
+            targetCode: 'AN16',
+          },
+          {
+            id: 'real-tree-3-2-4',
+            title: '财务报表附注',
+            pageRange: '103-110',
+            location: '第十二节 财务报告 / 二、财务报表 / 财务报表附注',
+            type: 'text',
+            markdown: `### 财务报表附注
+
+财务报表附注对会计政策、重要会计估计、主要科目变动原因、关联交易、承诺事项及或有事项等进行了补充说明。
+
+该部分通常与主表一起构成完整的结构化抽取链路。`,
+          },
+        ],
+      },
+    ],
+  },
+]
+
 const realFinancialCase = {
   id: 'public-financial-real-17',
   reportName: '深圳广田集团股份有限公司2020年年度报告.pdf',
   crmCode: 'IB001193',
+  year: '2020',
+  quarter: '年报',
   reportType: '财务报告',
   latestPeriod: '2020年报',
   fetchedAt: '2026-08-20 18:39',
@@ -314,6 +501,7 @@ const realFinancialCase = {
   },
   rawTables: realFinancialRawTables,
   targetTables: realFinancialTargetTables,
+  fullResultTree: realFinancialFullResultTree,
   reportTreePreview: ['第十二节 财务报告', '一、审计报告', '二、财务报表', '第四节 经营情况讨论与分析'],
   reportTreeDataPreview: ['AN14 合并资产负债表', 'AN15 合并利润表', 'AN16 合并现金流量表', 'AN01_A 主营业务分析'],
 }
@@ -367,6 +555,62 @@ const buildTreePreview = (typeKey) => {
   }
 }
 
+const buildFullResultTree = (typeKey, rawTables = []) => {
+  const textIntroMap = {
+    financial: '完整目录树包含经营分析、审计报告、财务报表与附注等章节，可同时承载文字节点与表格节点。',
+    audit: '完整目录树包含审计意见、关键审计事项、形成意见基础和管理层责任等文字节点。',
+    prospectus: '完整目录树包含发行概况、风险因素、募集资金用途、财务摘要等章节节点。',
+    hk: '完整目录树包含综合财务报表、附注、管理层讨论与公司治理等章节节点。',
+  }
+
+  const sectionTitleMap = {
+    financial: '财务报告',
+    audit: '审计报告正文',
+    prospectus: '招股说明书正文',
+    hk: '港股财务报告正文',
+  }
+
+  return [
+    {
+      id: `${typeKey}-tree-preface`,
+      title: '目录概览',
+      pageRange: '1-3',
+      location: `目录概览 / ${sectionTitleMap[typeKey] || '正文'}`,
+      type: 'text',
+      markdown: `# 目录概览
+
+${textIntroMap[typeKey] || '当前目录树用于演示全量解析结果的章节结构。'}`
+    },
+    {
+      id: `${typeKey}-tree-main`,
+      title: sectionTitleMap[typeKey] || '正文',
+      pageRange: rawTables[0]?.pageRange || '80-120',
+      location: sectionTitleMap[typeKey] || '正文',
+      type: 'section',
+      markdown: `# ${sectionTitleMap[typeKey] || '正文'}
+
+当前章节下包含若干文字节点与表格节点，支持目录树、Markdown/JSON 与 PDF 联动。`,
+      children: rawTables.map((table, index) => ({
+        id: `${typeKey}-tree-node-${index + 1}`,
+        title: table.name,
+        pageRange: table.pageRange || '--',
+        location: table.location || table.name,
+        type: index % 3 === 0 ? 'table' : 'text',
+        targetCode: table.targetCode || null,
+        markdown:
+          index % 3 === 0
+            ? table.markdown
+            : `## ${table.name}
+
+当前为 ${table.name} 对应的文字节点演示内容，用于模拟 PageIndex 全量目录树中的普通正文节点。
+
+定位：${table.location || '--'}
+页码：${table.pageRange || '--'}`,
+      })),
+    },
+  ]
+}
+
 const createLibraryRows = (rows, typeKey, scopeKey) => {
   const matchedRows = rows.filter((row) => row.report_type === typeKey)
   const sourceRows = matchedRows.length ? matchedRows : rows
@@ -412,6 +656,8 @@ const createLibraryRows = (rows, typeKey, scopeKey) => {
       fileUrl: row.file_url || '',
       reportName: buildReportName(row, typeKey),
       crmCode: row.crmcode,
+      year: String(row.report_year),
+      quarter: quarterLabelMap[row.report_quarter] || '',
       reportType: typeLabelMap[typeKey],
       latestPeriod: `${row.report_year}${quarterLabelMap[row.report_quarter] || ''}`,
       fetchedAt: row.create_time.slice(0, 16),
@@ -435,6 +681,7 @@ const createLibraryRows = (rows, typeKey, scopeKey) => {
       },
       rawTables,
       targetTables,
+      fullResultTree: buildFullResultTree(typeKey, rawTables),
       reportTreePreview: treePreview.directory,
       reportTreeDataPreview: treePreview.data,
     }

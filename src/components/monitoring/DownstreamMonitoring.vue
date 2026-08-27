@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   downstreamRows: { type: Array, required: true },
@@ -8,18 +8,49 @@ const props = defineProps({
 
 const activeScopeKey = ref('public')
 const activeReportType = ref('all')
-const activeTriggerStatus = ref('all')
-const activeAlertFilter = ref('all')
+const startDate = ref(props.referenceDate)
+const endDate = ref(props.referenceDate)
+const searchKeyword = ref('')
 const selectedAlert = ref(null)
+const resolvedAlertIds = ref([])
+const pageSize = ref(10)
+const currentPage = ref(1)
+const jumpPageInput = ref('1')
 
-const downstreamStatusClassMap = {
-  normal: 'success',
-  triggered: 'danger',
+const scopeOptions = [
+  { key: 'public', label: '公众报告' },
+  { key: 'private', label: '非公众报告' },
+]
+
+const downstreamTableConfigs = [
+  {
+    key: 'base_finance',
+    label: 'base_finance',
+    getStatus: (row) => row.baseFinanceSynced,
+  },
+  {
+    key: 'base_finance_note_integrated',
+    label: 'base_finance_note_integrated',
+    getStatus: (row) => row.baseFinanceNoteSynced,
+  },
+]
+
+const alertRuleDefinitions = {
+  base_finance: {
+    title: 'base_finance 当日未同步',
+    definition: '在选定监测日期范围内，如果下游表 base_finance 当天没有同步成功记录，则触发该告警。',
+  },
+  base_finance_note_integrated: {
+    title: 'base_finance_note_integrated 当日未同步',
+    definition: '在选定监测日期范围内，如果下游表 base_finance_note_integrated 当天没有同步成功记录，则触发该告警。',
+  },
 }
+
+const todayKey = props.referenceDate
 
 const parseDate = (value) => {
   if (!value) return null
-  return new Date(value.replace(' ', 'T'))
+  return new Date(`${value}T00:00:00`)
 }
 
 const formatDayKey = (date) => {
@@ -29,22 +60,38 @@ const formatDayKey = (date) => {
   return `${year}-${month}-${day}`
 }
 
-const dateWindow = computed(() => {
-  const start = parseDate(`${props.referenceDate} 00:00:00`)
-  const end = parseDate(`${props.referenceDate} 23:59:59`)
-  return { start, end }
-})
+const buildDateRange = (start, end) => {
+  const startObj = parseDate(start)
+  const endObj = parseDate(end)
+  if (!startObj || !endObj || startObj > endObj) return []
 
-const inWindow = (value) => {
-  const date = parseDate(value)
-  if (!date) return false
-  return date >= dateWindow.value.start && date <= dateWindow.value.end
+  const days = []
+  const cursor = new Date(startObj)
+  while (cursor <= endObj) {
+    days.push(formatDayKey(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return days
 }
 
-const scopeOptions = [
-  { key: 'public', label: '公众报告' },
-  { key: 'private', label: '非公众报告' },
-]
+const normalizedRange = computed(() => {
+  if (startDate.value <= endDate.value) {
+    return { start: startDate.value, end: endDate.value }
+  }
+
+  return { start: endDate.value, end: startDate.value }
+})
+
+const dateValidationMessage = computed(() => {
+  if (!startDate.value || !endDate.value) return '请选择开始日期和结束日期'
+  if (startDate.value > todayKey || endDate.value > todayKey) return '开始日期和结束日期都不能大于今日'
+  if (startDate.value > endDate.value) return '开始日期必须小于或等于结束日期'
+  return ''
+})
+
+const currentScopeMeta = computed(() => {
+  return scopeOptions.find((item) => item.key === activeScopeKey.value) || scopeOptions[0]
+})
 
 const scopeRows = computed(() => {
   return props.downstreamRows.filter((row) => row.scopeKey === activeScopeKey.value)
@@ -61,170 +108,78 @@ const reportTypeOptions = computed(() => {
   ]
 })
 
-const triggerStatusOptions = [
-  { value: 'all', label: '全部状态' },
-  { value: 'triggered', label: '已触发' },
-  { value: 'normal', label: '未触发' },
-]
+const filteredRows = computed(() => {
+  return scopeRows.value.filter((row) => {
+    return activeReportType.value === 'all' || row.reportTypeKey === activeReportType.value
+  })
+})
 
-const ruleStatusClass = (triggered, notApplicable = false) => {
-  if (notApplicable) return 'muted'
-  return triggered ? 'danger' : 'success'
-}
+const rangeDays = computed(() => {
+  if (dateValidationMessage.value) return []
+  return buildDateRange(normalizedRange.value.start, normalizedRange.value.end)
+})
 
-const chainSteps = (row) => {
-  const tables = row.threeMajorTables || []
-  const an14 = tables.find((item) => item.code === 'AN14')
-  const an15 = tables.find((item) => item.code === 'AN15')
-  const an16 = tables.find((item) => item.code === 'AN16')
+const monitorLedgerRows = computed(() => {
+  return rangeDays.value.flatMap((day) => {
+    const rowsOfDay = filteredRows.value.filter((row) => row.syncTime.slice(0, 10) === day)
 
-  return [
-    {
-      key: 'sync',
-      label: '前一日入表',
-      triggered: row.yesterdaySyncTriggered,
-      notApplicable: false,
-    },
-    {
-      key: 'an14',
-      label: 'AN14 资产负债表',
-      triggered: !an14?.notApplicable && !an14?.entered,
-      notApplicable: !!an14?.notApplicable,
-    },
-    {
-      key: 'an15',
-      label: 'AN15 利润表',
-      triggered: !an15?.notApplicable && !an15?.entered,
-      notApplicable: !!an15?.notApplicable,
-    },
-    {
-      key: 'an16',
-      label: 'AN16 现金流量表',
-      triggered: !an16?.notApplicable && !an16?.entered,
-      notApplicable: !!an16?.notApplicable,
-    },
-    {
-      key: 'code',
-      label: 'Code 完整性',
-      triggered: row.missingCodeTriggered,
-      notApplicable: !(row.reportTypeKey === 'financial' || row.reportTypeKey === 'hk'),
-    },
-    {
-      key: 'rows',
-      label: '行数阈值',
-      triggered: row.lowRowTriggered,
-      notApplicable: !(row.reportTypeKey === 'financial' || row.reportTypeKey === 'hk'),
-    },
-  ]
-}
+    return downstreamTableConfigs.map((table) => {
+      const syncedRows = rowsOfDay.filter((row) => table.getStatus(row))
+      const totalRows = rowsOfDay.length
+      const synced = syncedRows.length > 0
+      const latestSyncTime = syncedRows.length
+        ? [...syncedRows].sort((a, b) => b.syncTime.localeCompare(a.syncTime))[0].syncTime
+        : '-'
 
-const alertRuleDefinitions = {
-  yesterday: {
-    title: '前一日未入表',
-    definition: '如果该报告在监测日对应的前一日，没有成功进入任意下游结果表，则触发这条告警。',
-  },
-  an14: {
-    title: 'AN14 资产负债表未入表',
-    definition: '财务/港股财报在下游结果中应存在 AN14 对应结果；若 AN14 未进入，则触发告警。',
-  },
-  an15: {
-    title: 'AN15 利润表未入表',
-    definition: '财务/港股财报在下游结果中应存在 AN15 对应结果；若 AN15 未进入，则触发告警。',
-  },
-  an16: {
-    title: 'AN16 现金流量表未入表',
-    definition: '财务/港股财报在下游结果中应存在 AN16 对应结果；若 AN16 未进入，则触发告警。',
-  },
-  code: {
-    title: '三表存在缺少 Code 的记录',
-    definition: '当三表结构化结果中存在已入表但未映射标准 code 的记录时，触发这条告警。',
-  },
-  low_an14: {
-    title: 'AN14 行数过少',
-    definition: '如果 AN14 已入表，但行数低于经验阈值，则判定结构化结果可能不完整并触发告警。',
-  },
-  low_an15: {
-    title: 'AN15 行数过少',
-    definition: '如果 AN15 已入表，但行数低于经验阈值，则判定结构化结果可能不完整并触发告警。',
-  },
-  low_an16: {
-    title: 'AN16 行数过少',
-    definition: '如果 AN16 已入表，但行数低于经验阈值，则判定结构化结果可能不完整并触发告警。',
-  },
-}
+      return {
+        id: `${day}-${table.key}`,
+        monitorDate: day,
+        tableKey: table.key,
+        tableLabel: table.label,
+        synced,
+        alertKey: table.key,
+        alertLabel: `${table.label} 当日未同步`,
+        totalRows,
+        syncedRows: syncedRows.length,
+        latestSyncTime,
+      }
+    })
+  })
+})
 
-const buildAlertItems = (row) => {
-  const tables = row.threeMajorTables || []
-  const an14 = tables.find((item) => item.code === 'AN14')
-  const an15 = tables.find((item) => item.code === 'AN15')
-  const an16 = tables.find((item) => item.code === 'AN16')
-  const alerts = []
+const unresolvedIssueRows = computed(() => {
+  return monitorLedgerRows.value.filter((row) => !row.synced && !resolvedAlertIds.value.includes(row.id))
+})
 
-  if (row.yesterdaySyncTriggered) {
-    alerts.push({ key: 'yesterday', label: '前一日未入表' })
-  }
-  if (an14 && !an14.notApplicable && !an14.entered) {
-    alerts.push({ key: 'an14', label: 'AN14 资产负债表未入表' })
-  }
-  if (an15 && !an15.notApplicable && !an15.entered) {
-    alerts.push({ key: 'an15', label: 'AN15 利润表未入表' })
-  }
-  if (an16 && !an16.notApplicable && !an16.entered) {
-    alerts.push({ key: 'an16', label: 'AN16 现金流量表未入表' })
-  }
-  if (row.missingCodeTriggered) {
-    alerts.push({ key: 'code', label: '三表存在缺少 Code 的记录' })
-  }
-  if (an14 && !an14.notApplicable && an14.entered && an14.count < an14.threshold) {
-    alerts.push({ key: 'low_an14', label: `AN14 行数过少（${an14.count}/${an14.threshold}）` })
-  }
-  if (an15 && !an15.notApplicable && an15.entered && an15.count < an15.threshold) {
-    alerts.push({ key: 'low_an15', label: `AN15 行数过少（${an15.count}/${an15.threshold}）` })
-  }
-  if (an16 && !an16.notApplicable && an16.entered && an16.count < an16.threshold) {
-    alerts.push({ key: 'low_an16', label: `AN16 行数过少（${an16.count}/${an16.threshold}）` })
-  }
+const filteredIssueRows = computed(() => {
+  return unresolvedIssueRows.value.filter((row) => {
+    const keyword = searchKeyword.value.trim().toLowerCase()
+    if (!keyword) return true
 
-  return alerts
-}
+    return [
+      row.tableLabel,
+      row.alertLabel,
+      alertRuleDefinitions[row.alertKey]?.title,
+      row.monitorDate,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword))
+  })
+})
 
-const getAlertTriggerReason = (row, alertKey) => {
-  const tables = row.threeMajorTables || []
-  const tableMap = Object.fromEntries(tables.map((item) => [item.code, item]))
+const alertCount = computed(() => unresolvedIssueRows.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredIssueRows.value.length / pageSize.value)))
 
-  if (alertKey === 'yesterday') {
-    return `该报告最后同步时间为 ${row.syncTime}，前一日入表数量为 ${row.yesterdayUpdateCount}，未大于 0，因此触发。`
-  }
-  if (alertKey === 'an14') {
-    return `AN14 当前 entered = ${tableMap.AN14?.entered ? 'true' : 'false'}，说明资产负债表没有进入下游结果表。`
-  }
-  if (alertKey === 'an15') {
-    return `AN15 当前 entered = ${tableMap.AN15?.entered ? 'true' : 'false'}，说明利润表没有进入下游结果表。`
-  }
-  if (alertKey === 'an16') {
-    return `AN16 当前 entered = ${tableMap.AN16?.entered ? 'true' : 'false'}，说明现金流量表没有进入下游结果表。`
-  }
-  if (alertKey === 'code') {
-    const hit = tables.find((item) => item.entered && item.hasCodeIssue)
-    return `当前命中的表为 ${hit?.code || '未知表'}，该表已入表，但存在未映射 code 的记录，所以触发了完整性告警。`
-  }
-  if (alertKey === 'low_an14') {
-    return `AN14 当前行数 ${tableMap.AN14?.count ?? 0}，阈值 ${tableMap.AN14?.threshold ?? '-'}，低于阈值，因此触发。`
-  }
-  if (alertKey === 'low_an15') {
-    return `AN15 当前行数 ${tableMap.AN15?.count ?? 0}，阈值 ${tableMap.AN15?.threshold ?? '-'}，低于阈值，因此触发。`
-  }
-  if (alertKey === 'low_an16') {
-    return `AN16 当前行数 ${tableMap.AN16?.count ?? 0}，阈值 ${tableMap.AN16?.threshold ?? '-'}，低于阈值，因此触发。`
-  }
-
-  return '当前告警已命中，但还没有补充更细的触发说明。'
-}
+const paginatedIssueRows = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredIssueRows.value.slice(start, start + pageSize.value)
+})
 
 const selectedAlertDetail = computed(() => {
   if (!selectedAlert.value) return null
-  const config = alertRuleDefinitions[selectedAlert.value.key] || {
-    title: selectedAlert.value.label,
+
+  const config = alertRuleDefinitions[selectedAlert.value.alertKey] || {
+    title: selectedAlert.value.alertLabel,
     definition: '该规则定义暂未补充。',
   }
 
@@ -232,63 +187,48 @@ const selectedAlertDetail = computed(() => {
     ...selectedAlert.value,
     title: config.title,
     definition: config.definition,
-    triggerReason: getAlertTriggerReason(selectedAlert.value.row, selectedAlert.value.key),
+    triggerReason:
+      selectedAlert.value.totalRows === 0
+        ? `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下没有任何记录进入监测口径，因此 ${selectedAlert.value.tableLabel} 没有发生同步，触发告警。`
+        : `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下共检查 ${selectedAlert.value.totalRows} 条记录，但 ${selectedAlert.value.tableLabel} 的同步成功数为 0，因此触发告警。`,
   }
 })
 
-const filteredRows = computed(() => {
-  return scopeRows.value.filter((row) => {
-    const matchesType = activeReportType.value === 'all' || row.reportTypeKey === activeReportType.value
-    const matchesTriggerStatus =
-      activeTriggerStatus.value === 'all' || row.downstreamStatusKey === activeTriggerStatus.value
-    const matchesRange = inWindow(row.syncTime)
+const setPage = (page) => {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  jumpPageInput.value = String(currentPage.value)
+}
 
-    return matchesType && matchesTriggerStatus && matchesRange
-  })
+const goPrevPage = () => setPage(currentPage.value - 1)
+const goNextPage = () => setPage(currentPage.value + 1)
+
+const submitJumpPage = () => {
+  const target = Number(jumpPageInput.value)
+  if (Number.isNaN(target)) {
+    jumpPageInput.value = String(currentPage.value)
+    return
+  }
+  setPage(target)
+}
+
+const resolveAlert = (item) => {
+  if (!resolvedAlertIds.value.includes(item.id)) {
+    resolvedAlertIds.value = [...resolvedAlertIds.value, item.id]
+  }
+  if (selectedAlert.value?.id === item.id) {
+    selectedAlert.value = null
+  }
+}
+
+watch([activeScopeKey, activeReportType, startDate, endDate, searchKeyword, pageSize], () => {
+  currentPage.value = 1
+  jumpPageInput.value = '1'
 })
 
-const issueRows = computed(() => {
-  return filteredRows.value.flatMap((row) =>
-    buildAlertItems(row).map((alert, index) => ({
-      id: `${row.id}-${alert.key}-${index}`,
-      row,
-      ...alert,
-    })),
-  )
+watch(totalPages, (value) => {
+  if (currentPage.value > value) currentPage.value = value
+  jumpPageInput.value = String(currentPage.value)
 })
-
-const kpiSummary = computed(() => {
-  const rows = filteredRows.value
-  const total = rows.length
-  const alerts = issueRows.value
-  const triggered = alerts.length
-  const countByKey = (key) => alerts.filter((item) => item.key === key).length
-
-  return [
-    { key: 'all', label: '监测总数', value: total, note: '前一日纳入监测的报告数', tone: '', icon: '▣' },
-    { key: 'triggered', label: '已触发', value: triggered, note: '当前一共触发的告警条数', tone: 'tone-danger', icon: '!' },
-    { key: 'yesterday', label: '前一日未入表', value: countByKey('yesterday'), note: '昨日未成功进入下游表', tone: 'tone-warning', icon: 'Y' },
-    { key: 'an14', label: 'AN14 未入', value: countByKey('an14'), note: '资产负债表未进入下游表', tone: 'tone-warning', icon: '14' },
-    { key: 'an15', label: 'AN15 未入', value: countByKey('an15'), note: '利润表未进入下游表', tone: 'tone-warning', icon: '15' },
-    { key: 'an16', label: 'AN16 未入', value: countByKey('an16'), note: '现金流量表未进入下游表', tone: 'tone-warning', icon: '16' },
-    { key: 'code', label: '缺少 Code', value: countByKey('code'), note: '结构化结果存在未映射 code', tone: 'tone-danger', icon: 'C' },
-    { key: 'low_an14', label: 'AN14 行数少', value: countByKey('low_an14'), note: '资产负债表行数低于阈值', tone: 'tone-warning', icon: 'L14' },
-    { key: 'low_an15', label: 'AN15 行数少', value: countByKey('low_an15'), note: '利润表行数低于阈值', tone: 'tone-warning', icon: 'L15' },
-    { key: 'low_an16', label: 'AN16 行数少', value: countByKey('low_an16'), note: '现金流量表行数低于阈值', tone: 'tone-warning', icon: 'L16' },
-  ]
-})
-
-const displayedIssueRows = computed(() => {
-  if (activeAlertFilter.value === 'all') return issueRows.value
-  if (activeAlertFilter.value === 'triggered') return issueRows.value
-  return issueRows.value.filter((item) => item.key === activeAlertFilter.value)
-})
-
-const currentScopeMeta = computed(() => {
-  return scopeOptions.find((item) => item.key === activeScopeKey.value) || scopeOptions[0]
-})
-
-const windowText = computed(() => `${formatDayKey(dateWindow.value.start)}`)
 </script>
 
 <template>
@@ -297,7 +237,7 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)}`)
       <div class="monitor-section-intro">
         <span>下游监测</span>
         <h2>下游监测</h2>
-        <p>监控结构化结果是否成功、完整、稳定地进入后续业务表，当前先展示同步状态、三表/附注就绪情况和明细台账。</p>
+        <p>这里只看两张下游表是否同步：base_finance 与 base_finance_note_integrated。</p>
       </div>
 
       <div class="monitor-header-filters">
@@ -319,89 +259,124 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)}`)
           </select>
         </label>
 
-        <label class="field monitor-select-field">
-          <span>触发状态</span>
-          <select v-model="activeTriggerStatus">
-            <option v-for="item in triggerStatusOptions" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
+        <div class="field monitor-select-field monitor-date-range-field">
+          <span>时间范围</span>
+          <div class="monitor-date-range-inputs">
+            <input v-model="startDate" type="date" :max="todayKey" />
+            <em>至</em>
+            <input v-model="endDate" type="date" :max="todayKey" />
+          </div>
+        </div>
       </div>
     </div>
+
+    <p v-if="dateValidationMessage" class="form-message error monitor-date-error">
+      {{ dateValidationMessage }}
+    </p>
 
     <article class="workbench-panel monitor-source-panel">
       <div class="monitor-source-head">
         <div>
           <span>DOWNSTREAM DELIVERY</span>
           <h3>{{ currentScopeMeta.label }}</h3>
-          <p>只看前一日的下游结果，按链条逐报告检查是否入表、AN14/AN15/AN16 是否分别进入、是否缺少 code，以及三表行数是否过少。</p>
+          <p>默认监测当天，也支持设置开始与结束日期。当前仅检查两张下游表在所选时间范围内是否同步成功。</p>
         </div>
-        <div class="monitor-source-badge">下游链路</div>
+        <div class="monitor-source-badge">表级监测</div>
       </div>
 
       <div class="monitor-window-note">
-        <strong>监测日期：</strong>{{ windowText }}（固定为前一日）
+        <strong>监测区间：</strong>{{ normalizedRange.start }} 至 {{ normalizedRange.end }}
       </div>
 
-      <div class="monitor-kpi-grid monitor-downstream-kpi-grid">
-        <article
-          v-for="metric in kpiSummary"
-          :key="metric.key"
-          :class="['workbench-panel monitor-kpi-card', metric.tone, 'monitor-kpi-card-clickable', { active: activeAlertFilter === metric.key || (metric.key === 'triggered' && activeAlertFilter === 'triggered') }]"
-          @click="activeAlertFilter = metric.key"
-        >
-          <span class="monitor-kpi-icon">{{ metric.icon }}</span>
-          <span class="monitor-kpi-label">{{ metric.label }}</span>
-          <strong class="monitor-kpi-value">{{ metric.value }}</strong>
-          <p>{{ metric.note }}</p>
+      <div class="monitor-kpi-grid monitor-downstream-single-kpi">
+        <article class="workbench-panel monitor-kpi-card tone-danger">
+          <span class="monitor-kpi-icon">!</span>
+          <span class="monitor-kpi-label">告警量</span>
+          <strong class="monitor-kpi-value">{{ alertCount }}</strong>
+          <p>当前筛选条件下，尚未解决的下游同步告警总数</p>
         </article>
       </div>
     </article>
 
     <article class="workbench-panel monitor-detail-panel">
-      <div class="monitor-filter-head">
+      <div class="monitor-filter-head monitor-filter-head-stacked">
         <div>
-          <span class="login-kicker">DOWNSTREAM TASKS</span>
+          <span class="login-kicker">DOWNSTREAM ALERTS</span>
           <h3>触发告警台账</h3>
-          <p class="monitor-placeholder-text">这里只显示已经触发的问题记录。点击上方卡片后，可以按具体规则查看对应的告警明细。</p>
+          <p class="monitor-placeholder-text">支持按告警名称和表名模糊搜索。点击“解决”后，该告警会从当前台账中消失。</p>
+        </div>
+
+        <div class="monitor-inline-filters">
+          <label class="field monitor-search-field">
+            <input
+              v-model="searchKeyword"
+              type="text"
+              placeholder="搜索触发告警名称 / 表名"
+            />
+          </label>
         </div>
       </div>
 
       <div class="history-table-wrap">
-        <table class="history-table monitor-history-table downstream-history-table">
+        <table class="history-table monitor-history-table downstream-ledger-table">
           <thead>
             <tr>
-              <th>主体名称</th>
-              <th>报告类型</th>
-              <th>报告期</th>
-              <th>触发规则</th>
-              <th>最后同步时间</th>
+              <th>触发告警名称</th>
+              <th>表名</th>
+              <th>触发时间</th>
+              <th>是否解决</th>
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="item in displayedIssueRows"
+              v-for="item in paginatedIssueRows"
               :key="item.id"
               class="monitor-alert-row"
               @click="selectedAlert = item"
             >
-              <td class="monitor-name-cell">
-                <strong>{{ item.row.companyName }}</strong>
-                <small>{{ item.row.crmCode }}</small>
-              </td>
-              <td>{{ item.row.reportTypeLabel }}</td>
-              <td>{{ item.row.reportYear }}{{ item.row.reportQuarter }}</td>
               <td>
-                <span class="status-pill danger">{{ item.label }}</span>
+                <strong>{{ alertRuleDefinitions[item.alertKey]?.title || item.alertLabel }}</strong>
               </td>
-              <td>{{ item.row.syncTime }}</td>
+              <td>{{ item.tableLabel }}</td>
+              <td>{{ item.monitorDate }}</td>
+              <td>
+                <button class="quad-link" type="button" @click.stop="resolveAlert(item)">解决</button>
+              </td>
             </tr>
-            <tr v-if="!displayedIssueRows.length">
-              <td colspan="5" class="empty-row">当前筛选条件下暂无触发告警</td>
+            <tr v-if="!paginatedIssueRows.length">
+              <td colspan="4" class="empty-row">当前筛选条件下暂无未解决的下游同步告警</td>
             </tr>
           </tbody>
         </table>
+
+        <div class="history-pagination">
+          <div class="pagination-summary">
+            共 <strong>{{ filteredIssueRows.length }}</strong> 条，当前第
+            <strong>{{ currentPage }}</strong> / <strong>{{ totalPages }}</strong> 页
+          </div>
+
+          <div class="pagination-controls">
+            <label class="page-size-select">
+              <span>每页</span>
+              <select v-model="pageSize">
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+              </select>
+              <span>条</span>
+            </label>
+
+            <button class="quad-link page-btn" type="button" :disabled="currentPage === 1" @click="goPrevPage">上一页</button>
+            <button class="quad-link page-btn" type="button" :disabled="currentPage === totalPages" @click="goNextPage">下一页</button>
+
+            <form class="jump-form" @submit.prevent="submitJumpPage">
+              <span>跳至</span>
+              <input v-model="jumpPageInput" type="number" min="1" :max="totalPages" />
+              <span>页</span>
+              <button class="quad-link page-btn" type="submit">确定</button>
+            </form>
+          </div>
+        </div>
       </div>
     </article>
 
@@ -417,20 +392,20 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)}`)
 
         <div class="monitor-drawer-grid">
           <article class="monitor-drawer-item">
-            <span>主体名称</span>
-            <strong>{{ selectedAlertDetail.row.companyName }}</strong>
+            <span>触发时间</span>
+            <strong>{{ selectedAlertDetail.monitorDate }}</strong>
           </article>
           <article class="monitor-drawer-item">
-            <span>报告类型</span>
-            <strong>{{ selectedAlertDetail.row.reportTypeLabel }}</strong>
+            <span>表名</span>
+            <strong>{{ selectedAlertDetail.tableLabel }}</strong>
           </article>
           <article class="monitor-drawer-item">
-            <span>报告期</span>
-            <strong>{{ selectedAlertDetail.row.reportYear }}{{ selectedAlertDetail.row.reportQuarter }}</strong>
+            <span>检查记录数</span>
+            <strong>{{ selectedAlertDetail.totalRows }}</strong>
           </article>
           <article class="monitor-drawer-item">
-            <span>最后同步时间</span>
-            <strong>{{ selectedAlertDetail.row.syncTime }}</strong>
+            <span>同步成功数</span>
+            <strong>{{ selectedAlertDetail.syncedRows }}</strong>
           </article>
         </div>
 
@@ -445,11 +420,11 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)}`)
         </article>
 
         <article class="monitor-pageindex-card">
-          <strong>当前记录快照</strong>
+          <strong>当前快照</strong>
           <p class="monitor-placeholder-text">
-            触发状态：{{ selectedAlertDetail.row.downstreamStatus }}<br />
-            前一日入表数量：{{ selectedAlertDetail.row.yesterdayUpdateCount }}<br />
-            当前全部触发项：{{ buildAlertItems(selectedAlertDetail.row).map((item) => item.label).join(' / ') || '无' }}
+            监测表：{{ selectedAlertDetail.tableLabel }}<br />
+            最近同步时间：{{ selectedAlertDetail.latestSyncTime }}<br />
+            监测范围：{{ currentScopeMeta.label }} / {{ activeReportType === 'all' ? '全部类型' : reportTypeOptions.find((item) => item.value === activeReportType)?.label }}
           </p>
         </article>
       </aside>

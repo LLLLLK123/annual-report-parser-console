@@ -1,10 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import {
-  getLibraryTypeLabel,
   libraryCollectionMap,
   libraryScopes,
-  publicLibraryTypes,
 } from '../data/librarySeeds'
 import { roles } from '../data/appShell'
 
@@ -13,11 +11,25 @@ const props = defineProps({
 })
 
 const activeScope = ref('public')
-const activeType = ref('financial')
 const reportSearch = ref('')
+const yearFilter = ref('')
+const quarterFilter = ref('')
+const reportTypeFilter = ref('')
+const statusFilter = ref('')
+const fetchedAtSort = ref('desc')
+const activeHeaderFilter = ref('')
 const selectedReportId = ref(null)
 const selectedNodeId = ref(null)
+const nodeKeyword = ref('')
+const fullResultNodeId = ref(null)
+const fullResultViewMode = ref('markdown')
+const expandedFullResultNodeIds = ref([])
 const showParseResultModal = ref(false)
+const showFullResultModal = ref(false)
+const expandedReportId = ref(null)
+const pageSize = ref(10)
+const currentPage = ref(1)
+const jumpPageInput = ref('1')
 
 const currentRole = computed(() => props.currentUser?.role || null)
 
@@ -54,46 +66,97 @@ const parseMarkdownTable = (markdown) => {
 }
 
 const currentCollection = computed(() => {
-  const rows = libraryCollectionMap[activeScope.value]?.[activeType.value] || []
+  const scopeCollection = libraryCollectionMap[activeScope.value] || {}
+  const rows = Object.values(scopeCollection).flat()
   if (currentRole.value === roles.customer) {
     return rows.filter((item) => item.uploaderUsername === props.currentUser?.username)
   }
   return rows
 })
 
+const yearOptions = computed(() => [...new Set(currentCollection.value.map((item) => item.year).filter(Boolean))])
+const quarterOptions = computed(() => [...new Set(currentCollection.value.map((item) => item.quarter).filter(Boolean))])
+const reportTypeOptions = computed(() => [...new Set(currentCollection.value.map((item) => item.reportType).filter(Boolean))])
+const statusOptions = computed(() => [...new Set(currentCollection.value.map((item) => item.parseStatus).filter(Boolean))])
+
 const filteredReports = computed(() => {
   const keyword = reportSearch.value.trim()
-  return currentCollection.value.filter((item) => {
-    if (!keyword) return true
-    return (
+  const rows = currentCollection.value.filter((item) => {
+    const matchesKeyword =
+      !keyword ||
+      (
       item.reportName.includes(keyword) ||
       item.crmCode.includes(keyword) ||
       item.companyName.includes(keyword)
-    )
+      )
+    const matchesYear = !yearFilter.value || item.year === yearFilter.value
+    const matchesQuarter = !quarterFilter.value || item.quarter === quarterFilter.value
+    const matchesType = !reportTypeFilter.value || item.reportType === reportTypeFilter.value
+    const matchesStatus = !statusFilter.value || item.parseStatus === statusFilter.value
+    return matchesKeyword && matchesYear && matchesQuarter && matchesType && matchesStatus
   })
+
+  return [...rows].sort((a, b) => {
+    if (!fetchedAtSort.value) return 0
+    const timeA = new Date(a.fetchedAt.replace(' ', 'T')).getTime()
+    const timeB = new Date(b.fetchedAt.replace(' ', 'T')).getTime()
+    return fetchedAtSort.value === 'asc' ? timeA - timeB : timeB - timeA
+  })
+})
+
+const totalReportCount = computed(() => filteredReports.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalReportCount.value / pageSize.value)))
+const paginatedReports = computed(() => {
+  const safePage = Math.min(currentPage.value, totalPages.value)
+  const start = (safePage - 1) * pageSize.value
+  return filteredReports.value.slice(start, start + pageSize.value)
 })
 
 const selectedReport = computed(() => {
   return filteredReports.value.find((item) => item.id === selectedReportId.value) || filteredReports.value[0] || null
 })
 
+const parseTargetNodes = computed(() => {
+  const report = selectedReport.value
+  if (!report) return []
+
+  return (report.targetTables || []).map((targetTable, index) => {
+    const matchedRawTable =
+      (report.rawTables || []).find((rawTable) => rawTable.targetCode && rawTable.targetCode === targetTable.code) ||
+      (report.rawTables || []).find((rawTable) => rawTable.name === targetTable.name) ||
+      (report.rawTables || []).find((rawTable) => targetTable.rawTableLocation?.includes(rawTable.name)) ||
+      null
+
+    return {
+      id: matchedRawTable?.id || `target-node-${targetTable.id}-${index}`,
+      name: targetTable.name,
+      pageRange: matchedRawTable?.pageRange || '--',
+      location: matchedRawTable?.location || targetTable.rawTableLocation || '--',
+      markdown: matchedRawTable?.markdown || targetTable.markdown || '',
+      targetCode: targetTable.code || matchedRawTable?.targetCode || null,
+      structured: targetTable.structured || null,
+      targetTable,
+    }
+  })
+})
+
+const filteredParseNodes = computed(() => {
+  const keyword = nodeKeyword.value.trim()
+  if (!keyword) return parseTargetNodes.value
+  return parseTargetNodes.value.filter((item) => item.name.includes(keyword) || item.targetCode?.includes(keyword))
+})
+
 const selectedNode = computed(() => {
-  const nodes = selectedReport.value?.rawTables || []
+  const nodes = filteredParseNodes.value
   return nodes.find((item) => item.id === selectedNodeId.value) || nodes[0] || null
 })
 
 const matchedStructuredTable = computed(() => {
-  const targetTables = selectedReport.value?.targetTables || []
   const node = selectedNode.value
 
   if (!node) return null
 
-  return (
-    targetTables.find((item) => node.targetCode && item.code === node.targetCode) ||
-    targetTables.find((item) => item.name.includes(node.name) || node.name.includes(item.name)) ||
-    targetTables.find((item) => item.rawTableLocation.includes(node.name) || node.location.includes(item.name)) ||
-    null
-  )
+  return node.targetTable || null
 })
 
 const parsedNodeTable = computed(() => parseMarkdownTable(selectedNode.value?.markdown || ''))
@@ -105,20 +168,173 @@ const selectedNodePage = computed(() => {
 
 const pdfEmbedUrl = computed(() => {
   if (!selectedReport.value?.fileUrl) return ''
+  if (selectedReport.value.fileUrl.includes('mock.public')) return ''
   return `${selectedReport.value.fileUrl}#page=${selectedNodePage.value}&zoom=page-width&toolbar=0&navpanes=0&scrollbar=1`
+})
+
+const fullResultNodes = computed(() => {
+  const report = selectedReport.value
+  if (!report) return []
+  const tree = report.fullResultTree || []
+
+  const walk = (nodes, depth = 0, parentId = null) =>
+    nodes.flatMap((node, index) => {
+      const currentNode = {
+        id: node.id,
+        title: node.title,
+        pageRange: node.pageRange || '--',
+        location: node.location || '--',
+        markdown: node.markdown || '',
+        pageIndex: Number.parseInt(String(node.pageRange || '').split('-')[0], 10) || index + 1,
+        type: node.type || 'text',
+        targetCode: node.targetCode || null,
+        depth,
+        parentId,
+        hasChildren: Boolean(node.children?.length),
+        json: {
+          title: node.title,
+          node_id: node.id,
+          node_type: node.type || 'text',
+          page_range: node.pageRange || '--',
+          page_index: Number.parseInt(String(node.pageRange || '').split('-')[0], 10) || null,
+          location: node.location || '--',
+          target_code: node.targetCode || null,
+          markdown: node.markdown || '',
+          children_count: node.children?.length || 0,
+        },
+      }
+
+      return [currentNode, ...walk(node.children || [], depth + 1, node.id)]
+    })
+
+  return walk(tree)
+})
+
+const selectedFullResultNode = computed(() => {
+  const nodes = fullResultNodes.value
+  return nodes.find((item) => item.id === fullResultNodeId.value) || nodes[0] || null
+})
+
+const fullResultPdfEmbedUrl = computed(() => {
+  if (!selectedReport.value?.fileUrl || !selectedFullResultNode.value) return ''
+  if (selectedReport.value.fileUrl.includes('mock.public')) return ''
+  return `${selectedReport.value.fileUrl}#page=${selectedFullResultNode.value.pageIndex}&zoom=page-width&toolbar=0&navpanes=0&scrollbar=1`
+})
+
+const fullResultJsonPreview = computed(() => {
+  if (!selectedFullResultNode.value) return ''
+  return JSON.stringify(selectedFullResultNode.value.json, null, 2)
+})
+
+const visibleFullResultNodes = computed(() => {
+  const expanded = new Set(expandedFullResultNodeIds.value)
+  return fullResultNodes.value.filter((node) => {
+    if (!node.parentId) return true
+    let currentParentId = node.parentId
+    while (currentParentId) {
+      if (!expanded.has(currentParentId)) return false
+      currentParentId = fullResultNodes.value.find((item) => item.id === currentParentId)?.parentId || null
+    }
+    return true
+  })
 })
 
 const selectReport = (id) => {
   selectedReportId.value = id
 }
 
+const canOpenResult = (row) => row?.parseStatus === '已完成'
+
+const toggleHeaderFilter = (key) => {
+  activeHeaderFilter.value = activeHeaderFilter.value === key ? '' : key
+}
+
+const closeHeaderFilter = () => {
+  activeHeaderFilter.value = ''
+}
+
+const handleReportRowClick = (row) => {
+  selectedReportId.value = row.id
+  if (!canOpenResult(row)) return
+  expandedReportId.value = expandedReportId.value === row.id ? null : row.id
+}
+
+const toggleExpandedRow = (row) => {
+  if (!canOpenResult(row)) return
+  expandedReportId.value = expandedReportId.value === row.id ? null : row.id
+  selectedReportId.value = row.id
+}
+
 const openParseResultModal = () => {
-  if (!selectedReport.value) return
+  if (!selectedReport.value || !canOpenResult(selectedReport.value)) return
+  nodeKeyword.value = ''
   showParseResultModal.value = true
+}
+
+const openFullResultModal = (row = selectedReport.value) => {
+  if (!row || !canOpenResult(row)) return
+  selectedReportId.value = row.id
+  fullResultNodeId.value = row.fullResultTree?.[0]?.id || row.rawTables?.[0]?.id || null
+  fullResultViewMode.value = 'markdown'
+  expandedFullResultNodeIds.value = (row.fullResultTree || [])
+    .filter((item) => item.children?.length)
+    .map((item) => item.id)
+  showFullResultModal.value = true
 }
 
 const closeParseResultModal = () => {
   showParseResultModal.value = false
+}
+
+const closeFullResultModal = () => {
+  showFullResultModal.value = false
+}
+
+const toggleFullResultNode = (node) => {
+  if (node.hasChildren) {
+    const expanded = new Set(expandedFullResultNodeIds.value)
+    if (expanded.has(node.id)) {
+      expanded.delete(node.id)
+    } else {
+      expanded.add(node.id)
+    }
+    expandedFullResultNodeIds.value = [...expanded]
+  }
+  fullResultNodeId.value = node.id
+}
+
+const syncPagination = () => {
+  if (currentPage.value > totalPages.value) {
+    currentPage.value = totalPages.value
+  }
+  jumpPageInput.value = String(currentPage.value)
+}
+
+const goToPrevPage = () => {
+  if (currentPage.value <= 1) return
+  currentPage.value -= 1
+  jumpPageInput.value = String(currentPage.value)
+}
+
+const goToNextPage = () => {
+  if (currentPage.value >= totalPages.value) return
+  currentPage.value += 1
+  jumpPageInput.value = String(currentPage.value)
+}
+
+const submitJumpPage = () => {
+  const parsed = Number(jumpPageInput.value)
+  if (!Number.isFinite(parsed)) {
+    jumpPageInput.value = String(currentPage.value)
+    return
+  }
+  currentPage.value = Math.min(Math.max(parsed, 1), totalPages.value)
+  jumpPageInput.value = String(currentPage.value)
+}
+
+const changePageSize = () => {
+  currentPage.value = 1
+  jumpPageInput.value = '1'
 }
 
 watch(
@@ -132,25 +348,67 @@ watch(
 )
 
 watch(
-  [activeScope, activeType],
+  activeScope,
   () => {
+    reportSearch.value = ''
+    yearFilter.value = ''
+    quarterFilter.value = ''
+    reportTypeFilter.value = ''
+    statusFilter.value = ''
+    fetchedAtSort.value = 'desc'
     selectedReportId.value = currentCollection.value[0]?.id || null
     selectedNodeId.value = currentCollection.value[0]?.rawTables?.[0]?.id || null
+    expandedReportId.value = null
+    currentPage.value = 1
+    jumpPageInput.value = '1'
   },
   { immediate: true },
 )
 
 watch(
+  [reportSearch, yearFilter, quarterFilter, reportTypeFilter, statusFilter, fetchedAtSort],
+  () => {
+    currentPage.value = 1
+    jumpPageInput.value = '1'
+    expandedReportId.value = null
+    activeHeaderFilter.value = ''
+  },
+)
+
+watch(
   selectedReport,
   (report) => {
-    selectedNodeId.value = report?.rawTables?.[0]?.id || null
+    selectedNodeId.value = report?.targetTables?.[0]?.id || report?.rawTables?.[0]?.id || null
+    fullResultNodeId.value = report?.fullResultTree?.[0]?.id || report?.rawTables?.[0]?.id || null
+    expandedFullResultNodeIds.value = (report?.fullResultTree || [])
+      .filter((item) => item.children?.length)
+      .map((item) => item.id)
+    nodeKeyword.value = ''
   },
   { immediate: true },
 )
+
+watch(
+  filteredParseNodes,
+  (nodes) => {
+    if (!nodes.length) {
+      selectedNodeId.value = null
+      return
+    }
+    if (!nodes.find((item) => item.id === selectedNodeId.value)) {
+      selectedNodeId.value = nodes[0].id
+    }
+  },
+  { immediate: true },
+)
+
+watch(filteredReports, () => {
+  syncPagination()
+})
 </script>
 
 <template>
-  <main class="module-main">
+  <main class="module-main" @click="closeHeaderFilter">
     <section class="library-workspace">
       <div class="workbench-top">
         <div class="workbench-head">
@@ -174,34 +432,12 @@ watch(
         </div>
       </section>
 
-      <section class="workbench-panel library-type-panel">
-        <div class="panel-head">
-          <div>
-            <span>{{ activeScope === 'public' ? '公众报告' : '非公众报告' }}</span>
-            <h2>报告类型窗口</h2>
-          </div>
-        </div>
-
-        <div class="library-type-switch">
-          <button
-            v-for="item in publicLibraryTypes"
-            :key="item.key"
-            :class="['config-type-card library-type-card', { active: activeType === item.key }]"
-            type="button"
-            @click="activeType = item.key"
-          >
-            <strong>{{ item.label }}</strong>
-            <small>查看 {{ item.label }} 的搜索、清单和解析结果入口。</small>
-          </button>
-        </div>
-      </section>
-
       <section class="library-finance-layout">
         <section class="workbench-panel library-list-panel">
           <div class="panel-head">
             <div>
-              <span>{{ getLibraryTypeLabel(activeType) }}</span>
-              <h2>搜索与报告清单</h2>
+              <span>{{ activeScope === 'public' ? '公众报告' : '非公众报告' }}</span>
+              <h2>报告清单</h2>
             </div>
           </div>
 
@@ -209,7 +445,7 @@ watch(
             <input
               v-model="reportSearch"
               type="text"
-              placeholder="搜索报告名称 / CRM Code / 主体名称"
+              placeholder="搜索主体名称"
             />
           </div>
 
@@ -217,91 +453,278 @@ watch(
             <table class="history-table library-table">
               <thead>
                 <tr>
-                  <th>报告名称</th>
-                  <th>CRM Code</th>
-                  <th>报告类型</th>
-                  <th>最新报告期</th>
-                  <th>获取时间</th>
-                  <th>解析状态</th>
+                  <th>主体名称</th>
+                  <th>
+                    <div class="library-th-filter compact">
+                      <button class="library-th-trigger" type="button" @click.stop="toggleHeaderFilter('year')">
+                        <span>年份</span>
+                        <span class="library-th-icon">▼</span>
+                      </button>
+                      <div v-if="activeHeaderFilter === 'year'" class="library-th-popover" @click.stop>
+                        <button class="library-th-option" type="button" @click="yearFilter = ''; closeHeaderFilter()">全部</button>
+                        <button
+                          v-for="year in yearOptions"
+                          :key="year"
+                          :class="['library-th-option', { active: yearFilter === year }]"
+                          type="button"
+                          @click="yearFilter = year; closeHeaderFilter()"
+                        >
+                          {{ year }}
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+                  <th>
+                    <div class="library-th-filter compact">
+                      <button class="library-th-trigger" type="button" @click.stop="toggleHeaderFilter('quarter')">
+                        <span>季度</span>
+                        <span class="library-th-icon">▼</span>
+                      </button>
+                      <div v-if="activeHeaderFilter === 'quarter'" class="library-th-popover" @click.stop>
+                        <button class="library-th-option" type="button" @click="quarterFilter = ''; closeHeaderFilter()">全部</button>
+                        <button
+                          v-for="quarter in quarterOptions"
+                          :key="quarter"
+                          :class="['library-th-option', { active: quarterFilter === quarter }]"
+                          type="button"
+                          @click="quarterFilter = quarter; closeHeaderFilter()"
+                        >
+                          {{ quarter }}
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+                  <th>
+                    <div class="library-th-filter compact">
+                      <button class="library-th-trigger" type="button" @click.stop="toggleHeaderFilter('reportType')">
+                        <span>报告类型</span>
+                        <span class="library-th-icon">▼</span>
+                      </button>
+                      <div v-if="activeHeaderFilter === 'reportType'" class="library-th-popover" @click.stop>
+                        <button class="library-th-option" type="button" @click="reportTypeFilter = ''; closeHeaderFilter()">全部</button>
+                        <button
+                          v-for="type in reportTypeOptions"
+                          :key="type"
+                          :class="['library-th-option', { active: reportTypeFilter === type }]"
+                          type="button"
+                          @click="reportTypeFilter = type; closeHeaderFilter()"
+                        >
+                          {{ type }}
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+                  <th>
+                    <div class="library-th-filter compact">
+                      <button class="library-th-trigger" type="button" @click.stop="toggleHeaderFilter('status')">
+                        <span>解析状态</span>
+                        <span class="library-th-icon">▼</span>
+                      </button>
+                      <div v-if="activeHeaderFilter === 'status'" class="library-th-popover" @click.stop>
+                        <button class="library-th-option" type="button" @click="statusFilter = ''; closeHeaderFilter()">全部</button>
+                        <button
+                          v-for="status in statusOptions"
+                          :key="status"
+                          :class="['library-th-option', { active: statusFilter === status }]"
+                          type="button"
+                          @click="statusFilter = status; closeHeaderFilter()"
+                        >
+                          {{ status }}
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+                  <th>
+                    <button class="library-th-trigger sort-only" type="button" @click.stop="fetchedAtSort = fetchedAtSort === 'desc' ? 'asc' : 'desc'">
+                      <span>上传时间</span>
+                      <span class="library-th-icon">{{ fetchedAtSort === 'desc' ? '↓' : '↑' }}</span>
+                    </button>
+                  </th>
+                  <th>查看全量解析结果</th>
+                  <th>查看表格解析结果</th>
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="row in filteredReports"
-                  :key="row.id"
-                  :class="{ active: selectedReport?.id === row.id }"
-                  @click="selectReport(row.id)"
-                >
-                  <td>
-                    <strong>{{ row.reportName }}</strong>
-                    <small>{{ row.companyName }}</small>
-                  </td>
-                  <td>{{ row.crmCode }}</td>
-                  <td>{{ row.reportType }}</td>
-                  <td>{{ row.latestPeriod }}</td>
-                  <td>{{ row.fetchedAt }}</td>
-                  <td>{{ row.parseStatus }}</td>
-                </tr>
+                <template v-for="row in paginatedReports" :key="row.id">
+                  <tr
+                    :class="{ active: selectedReport?.id === row.id }"
+                    @click="handleReportRowClick(row)"
+                  >
+                    <td>
+                      <strong>{{ row.companyName }}</strong>
+                      <small>{{ row.reportName }}</small>
+                    </td>
+                    <td>{{ row.year }}</td>
+                    <td>{{ row.quarter }}</td>
+                    <td>{{ row.reportType }}</td>
+                    <td>{{ row.fetchedAt }}</td>
+                    <td>
+                      <button
+                        :class="['library-status-trigger', { clickable: canOpenResult(row) }]"
+                        type="button"
+                        :disabled="!canOpenResult(row)"
+                        :title="canOpenResult(row) ? '点击展开表格统计' : '仅已完成报告可查看统计明细'"
+                        @click.stop="toggleExpandedRow(row)"
+                      >
+                        {{ row.parseStatus }}
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        :class="['ghost-action-btn', { disabled: !canOpenResult(row) }]"
+                        type="button"
+                        :disabled="!canOpenResult(row)"
+                        :title="canOpenResult(row) ? '查看全量解析结果' : '仅已完成报告可查看'"
+                        @click.stop="openFullResultModal(row)"
+                      >
+                        查看全量解析结果
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        :class="['ghost-action-btn', 'primary', { disabled: !canOpenResult(row) }]"
+                        type="button"
+                        :disabled="!canOpenResult(row)"
+                        :title="canOpenResult(row) ? '查看表格解析结果' : '仅已完成报告可查看'"
+                        @click.stop="selectReport(row.id); openParseResultModal()"
+                      >
+                        查看表格解析结果
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="expandedReportId === row.id" class="library-expand-row">
+                    <td colspan="8">
+                      <div class="library-expand-content">
+                        <span>原始表格数量：<strong>{{ row.rawTableCount }}</strong></span>
+                        <span>目标表格数量：<strong>{{ row.targetTableCount }}</strong></span>
+                        <span>命中表格数量：<strong>{{ row.matchedTableCount }}</strong></span>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
                 <tr v-if="!filteredReports.length">
-                  <td colspan="6" class="empty-row">暂无匹配的{{ getLibraryTypeLabel(activeType) }}</td>
+                  <td colspan="8" class="empty-row">暂无匹配的报告</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </section>
 
-        <section class="workbench-panel library-result-panel">
-          <div class="panel-head">
-            <div>
-              <span>解析结果</span>
-              <h2>{{ selectedReport?.reportName || `${getLibraryTypeLabel(activeType)}窗口预留` }}</h2>
+          <div class="history-pagination library-pagination">
+            <span>共 <b>{{ totalReportCount }}</b> 条，当前第 <b>{{ currentPage }}</b> / <b>{{ totalPages }}</b> 页</span>
+            <div class="history-pagination-controls">
+              <span>每页</span>
+              <select v-model.number="pageSize" @change="changePageSize">
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+              </select>
+              <span>条</span>
+              <button type="button" :disabled="currentPage <= 1" @click="goToPrevPage">上一页</button>
+              <button type="button" :disabled="currentPage >= totalPages" @click="goToNextPage">下一页</button>
+              <span>跳至</span>
+              <input v-model="jumpPageInput" type="text" inputmode="numeric" />
+              <span>页</span>
+              <button type="button" @click="submitJumpPage">确定</button>
             </div>
           </div>
-
-          <template v-if="selectedReport">
-            <div class="library-result-summary">
-              <article class="library-metric-card">
-                <span>最新报告期</span>
-                <strong>{{ selectedReport.latestReportPeriod }}</strong>
-              </article>
-              <article class="library-metric-card">
-                <span>全部报告期</span>
-                <strong>{{ selectedReport.allReportPeriods.join(' / ') }}</strong>
-              </article>
-              <article class="library-metric-card">
-                <span>原始表格数量</span>
-                <strong>{{ selectedReport.rawTableCount }}</strong>
-              </article>
-              <article class="library-metric-card">
-                <span>目标表格数量</span>
-                <strong>{{ selectedReport.targetTableCount }}</strong>
-              </article>
-              <article class="library-metric-card">
-                <span>命中表格数量</span>
-                <strong>{{ selectedReport.matchedTableCount }}</strong>
-              </article>
-            </div>
-
-            <div class="library-result-grid single">
-              <article class="library-result-card library-result-entry-card">
-                <div class="library-result-card-head">
-                  <span>解析结果入口</span>
-                  <h3>单独窗口查看原文 / 原始表格 / 结构化结果</h3>
-                </div>
-                <ul class="library-result-list">
-                  <li>
-                    <strong>当前选中报告</strong>
-                    <span>{{ selectedReport.reportName }}</span>
-                  </li>
-                </ul>
-                <button class="quad-enter library-open-modal-btn" type="button" @click="openParseResultModal">
-                  查看解析结果
-                </button>
-              </article>
-            </div>
-          </template>
         </section>
       </section>
+
+      <div v-if="showFullResultModal && selectedReport" class="library-modal-mask" @click.self="closeFullResultModal">
+        <section class="library-modal library-full-result-modal">
+          <div class="library-modal-head">
+            <div>
+              <span>全量解析结果</span>
+              <h2>{{ selectedReport.reportName }}</h2>
+              <p>左侧为目录树，中间查看当前目录对应的 Markdown / JSON，右侧查看 PDF 原文定位。</p>
+            </div>
+            <button class="library-modal-close" type="button" @click="closeFullResultModal">×</button>
+          </div>
+
+          <div class="library-full-result-grid detailed">
+            <article class="library-result-card">
+              <div class="library-result-card-head">
+                <span>目录树</span>
+                <h3>章节 / 表格目录</h3>
+              </div>
+              <div class="library-node-list">
+                <button
+                  v-for="node in visibleFullResultNodes"
+                  :key="node.id"
+                  :class="['library-node-item', { active: selectedFullResultNode?.id === node.id }]"
+                  type="button"
+                  @click="toggleFullResultNode(node)"
+                  :style="{ paddingLeft: `${16 + node.depth * 22}px` }"
+                >
+                  <strong>
+                    {{ node.hasChildren ? (expandedFullResultNodeIds.includes(node.id) ? '▾ ' : '▸ ') : '' }}{{ node.title }}
+                  </strong>
+                  <span>页码：{{ node.pageRange }}</span>
+                  <small>{{ node.location }}</small>
+                </button>
+                <div v-if="!visibleFullResultNodes.length" class="library-empty-table compact">
+                  当前报告暂无目录树节点
+                </div>
+              </div>
+            </article>
+
+            <article class="library-result-card">
+              <div class="library-result-card-head">
+                <span>原文输出</span>
+                <h3>{{ selectedFullResultNode?.title || '当前目录内容' }}</h3>
+              </div>
+              <div class="library-view-mode-switch">
+                <button
+                  :class="['library-view-mode-btn', { active: fullResultViewMode === 'markdown' }]"
+                  type="button"
+                  @click="fullResultViewMode = 'markdown'"
+                >
+                  Markdown
+                </button>
+                <button
+                  :class="['library-view-mode-btn', { active: fullResultViewMode === 'json' }]"
+                  type="button"
+                  @click="fullResultViewMode = 'json'"
+                >
+                  JSON
+                </button>
+              </div>
+              <div class="library-full-result-content">
+                <pre v-if="fullResultViewMode === 'json'" class="library-code-block">{{ fullResultJsonPreview }}</pre>
+                <pre v-else class="library-code-block">{{ selectedFullResultNode?.markdown || '当前目录暂无 markdown 内容' }}</pre>
+              </div>
+            </article>
+
+            <article class="library-result-card">
+              <div class="library-result-card-head">
+                <span>原始 PDF</span>
+                <h3>原文预览 / 目录定位</h3>
+              </div>
+              <div class="library-document-preview">
+                <div class="library-pdf-frame-wrap">
+                  <iframe
+                    v-if="fullResultPdfEmbedUrl"
+                    :key="fullResultPdfEmbedUrl"
+                    :src="fullResultPdfEmbedUrl"
+                    class="library-pdf-frame"
+                    title="全量结果PDF预览"
+                  />
+                  <div v-else class="library-document-page">
+                    <strong>{{ selectedReport.pdfPreview.fileName }}</strong>
+                    <span>暂无可用 PDF 链接</span>
+                    <span>{{ selectedFullResultNode?.location || '--' }}</span>
+                  </div>
+                </div>
+                <div class="library-document-meta">
+                  <span>{{ selectedReport.pdfPreview.fileName }}</span>
+                  <span>当前目录：{{ selectedFullResultNode?.title || '未选择' }}</span>
+                  <span>定位：{{ selectedFullResultNode?.pageRange || '--' }} / {{ selectedFullResultNode?.location || '--' }}</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
 
       <div v-if="showParseResultModal && selectedReport" class="library-modal-mask" @click.self="closeParseResultModal">
         <section class="library-modal">
@@ -314,15 +737,37 @@ watch(
             <button class="library-modal-close" type="button" @click="closeParseResultModal">×</button>
           </div>
 
+          <div class="library-modal-kpis">
+            <article class="library-modal-kpi">
+              <span>原始表格数量</span>
+              <strong>{{ selectedReport.rawTableCount }}</strong>
+            </article>
+            <article class="library-modal-kpi">
+              <span>目标表格数量</span>
+              <strong>{{ selectedReport.targetTableCount }}</strong>
+            </article>
+            <article class="library-modal-kpi">
+              <span>命中表格数量</span>
+              <strong>{{ selectedReport.matchedTableCount }}</strong>
+            </article>
+          </div>
+
           <div class="library-preview-grid">
             <article class="library-result-card">
               <div class="library-result-card-head">
-                <span>PageIndex Node</span>
-                <h3>节点结构 / 点击切换内容</h3>
+                <span>目标表名</span>
+                <h3>表名</h3>
+              </div>
+              <div class="library-node-filter">
+                <input
+                  v-model="nodeKeyword"
+                  type="text"
+                  placeholder="搜索表名"
+                />
               </div>
               <div class="library-node-list">
                 <button
-                  v-for="node in selectedReport.rawTables"
+                  v-for="node in filteredParseNodes"
                   :key="node.id"
                   :class="['library-node-item', { active: selectedNode?.id === node.id }]"
                   type="button"
@@ -332,8 +777,8 @@ watch(
                   <span>页码：{{ node.pageRange }}</span>
                   <small>{{ node.location }}</small>
                 </button>
-                <div v-if="!selectedReport.rawTables.length" class="library-empty-table compact">
-                  当前报告暂无 PageIndex 节点
+                <div v-if="!filteredParseNodes.length" class="library-empty-table compact">
+                  当前报告暂无可结构化目标表
                 </div>
               </div>
             </article>
@@ -341,7 +786,7 @@ watch(
             <article class="library-result-card">
               <div class="library-result-card-head">
                 <span>原始 PDF</span>
-                <h3>原文预览 / 节点定位</h3>
+                <h3>原文预览</h3>
               </div>
               <div class="library-document-preview">
                 <div class="library-pdf-frame-wrap">
@@ -360,7 +805,7 @@ watch(
                 </div>
                 <div class="library-document-meta">
                   <span>{{ selectedReport.pdfPreview.fileName }}</span>
-                  <span>当前节点：{{ selectedNode?.name || '未选择' }}</span>
+                  <span>当前表名：{{ selectedNode?.name || '未选择' }}</span>
                   <span>原始报告定位：{{ selectedNode?.pageRange || '--' }} / {{ selectedNode?.location || '--' }}</span>
                 </div>
               </div>
@@ -369,7 +814,7 @@ watch(
             <article class="library-result-card">
               <div class="library-result-card-head">
                 <span>原始表格</span>
-                <h3>当前节点对应的原始表格</h3>
+                <h3>当前表对应的原文输出</h3>
               </div>
               <div v-if="selectedNode" class="library-table-preview">
                 <div class="library-table-preview-head">
@@ -402,7 +847,7 @@ watch(
             <article class="library-result-card">
               <div class="library-result-card-head">
                 <span>结构化结果</span>
-                <h3>三表 / 附注结构化输出</h3>
+                <h3>当前表对应的结构化输出</h3>
               </div>
               <div class="library-table-preview">
                 <div class="library-table-preview-head">

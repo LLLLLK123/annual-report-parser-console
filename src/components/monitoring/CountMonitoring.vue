@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { normalizeReportTypeKey, normalizeStatusKey, reportTypeLabelMap } from '../../data/uploadSeeds'
 
 const props = defineProps({
@@ -12,6 +12,17 @@ const props = defineProps({
 const activeSectionKey = ref(props.countSections[0]?.key || 'public')
 const activeRangeKey = ref(props.rangeOptions[0]?.key || 'today')
 const activeReportType = ref('all')
+const activeCompletedIssueFilter = ref('all')
+const selectedCompletedAlert = ref(null)
+const completedPageSize = ref(10)
+const completedCurrentPage = ref(1)
+const completedJumpPageInput = ref('1')
+
+const COMPLETED_ROW_THRESHOLDS = {
+  an14: 70,
+  an15: 24,
+  an16: 36,
+}
 
 const statusLabelMap = {
   pending: '待处理',
@@ -25,6 +36,40 @@ const statusClassMap = {
   processing: 'info',
   success: 'success',
   failed: 'danger',
+}
+
+const completedIssueDefinitions = {
+  no_an14: {
+    title: '无资产负债表',
+    definition: '已完成报告在结果表中应至少存在一张资产负债表（AN14）；若未进入，则判定流程存在缺表问题。',
+  },
+  no_an15: {
+    title: '无利润表',
+    definition: '已完成报告在结果表中应至少存在一张利润表（AN15）；若未进入，则判定流程存在缺表问题。',
+  },
+  no_an16: {
+    title: '无现金流量表',
+    definition: '已完成报告在结果表中应至少存在一张现金流量表（AN16）；若未进入，则判定流程存在缺表问题。',
+  },
+  low_an14: {
+    title: '资产负债表行数低于阈值',
+    definition: `已完成报告虽然存在资产负债表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an14}，则认为三表抽取疑似不完整。`,
+  },
+  low_an15: {
+    title: '利润表行数低于阈值',
+    definition: `已完成报告虽然存在利润表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an15}，则认为三表抽取疑似不完整。`,
+  },
+  low_an16: {
+    title: '现金流量表行数低于阈值',
+    definition: `已完成报告虽然存在现金流量表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an16}，则认为三表抽取疑似不完整。`,
+  },
+}
+
+const quarterLabelMap = {
+  1: '一季报',
+  2: '半年报',
+  3: '三季报',
+  4: '年报',
 }
 
 const parseDate = (value) => {
@@ -182,10 +227,200 @@ const donutStyle = computed(() => {
   }
 })
 
-const recentRows = computed(() => {
-  return [...filteredSectionRows.value]
-    .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
-    .slice(0, 8)
+const buildCompletedTableStatus = (row, index) => {
+  if (row.normalizedReportType !== 'financial' && row.normalizedReportType !== 'hk') {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: true },
+      { code: 'AN15', label: '利润表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: true },
+      { code: 'AN16', label: '现金流量表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: true },
+    ]
+  }
+
+  const pattern = index % 6
+
+  if (pattern === 0) {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+      { code: 'AN15', label: '利润表', entered: true, count: 28, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+      { code: 'AN16', label: '现金流量表', entered: true, count: 42, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+    ]
+  }
+
+  if (pattern === 1) {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: true, count: 84, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+      { code: 'AN15', label: '利润表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+      { code: 'AN16', label: '现金流量表', entered: true, count: 41, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+    ]
+  }
+
+  if (pattern === 2) {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: true, count: 82, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+      { code: 'AN15', label: '利润表', entered: true, count: 26, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+      { code: 'AN16', label: '现金流量表', entered: false, count: 0, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+    ]
+  }
+
+  if (pattern === 3) {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: true, count: 61, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+      { code: 'AN15', label: '利润表', entered: true, count: 28, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+      { code: 'AN16', label: '现金流量表', entered: true, count: 40, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+    ]
+  }
+
+  if (pattern === 4) {
+    return [
+      { code: 'AN14', label: '资产负债表', entered: true, count: 78, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+      { code: 'AN15', label: '利润表', entered: true, count: 18, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+      { code: 'AN16', label: '现金流量表', entered: true, count: 39, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+    ]
+  }
+
+  return [
+    { code: 'AN14', label: '资产负债表', entered: true, count: 80, threshold: COMPLETED_ROW_THRESHOLDS.an14, notApplicable: false },
+    { code: 'AN15', label: '利润表', entered: true, count: 28, threshold: COMPLETED_ROW_THRESHOLDS.an15, notApplicable: false },
+    { code: 'AN16', label: '现金流量表', entered: true, count: 30, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
+  ]
+}
+
+const completedRows = computed(() => {
+  return filteredSectionRows.value
+    .filter((row) => row.normalizedStatus === 'success' && inWindow(row.updatedAt))
+    .map((row, index) => ({
+      ...row,
+      monitorTables: buildCompletedTableStatus(row, index),
+    }))
+})
+
+const buildCompletedAlertItems = (row) => {
+  const tables = Object.fromEntries((row.monitorTables || []).map((item) => [item.code, item]))
+  const alerts = []
+
+  if (tables.AN14 && !tables.AN14.notApplicable && !tables.AN14.entered) {
+    alerts.push({ key: 'no_an14', label: '无资产负债表' })
+  }
+  if (tables.AN15 && !tables.AN15.notApplicable && !tables.AN15.entered) {
+    alerts.push({ key: 'no_an15', label: '无利润表' })
+  }
+  if (tables.AN16 && !tables.AN16.notApplicable && !tables.AN16.entered) {
+    alerts.push({ key: 'no_an16', label: '无现金流量表' })
+  }
+  if (tables.AN14 && !tables.AN14.notApplicable && tables.AN14.entered && tables.AN14.count < tables.AN14.threshold) {
+    alerts.push({ key: 'low_an14', label: `资产负债表行数低于阈值（${tables.AN14.count}/${tables.AN14.threshold}）` })
+  }
+  if (tables.AN15 && !tables.AN15.notApplicable && tables.AN15.entered && tables.AN15.count < tables.AN15.threshold) {
+    alerts.push({ key: 'low_an15', label: `利润表行数低于阈值（${tables.AN15.count}/${tables.AN15.threshold}）` })
+  }
+  if (tables.AN16 && !tables.AN16.notApplicable && tables.AN16.entered && tables.AN16.count < tables.AN16.threshold) {
+    alerts.push({ key: 'low_an16', label: `现金流量表行数低于阈值（${tables.AN16.count}/${tables.AN16.threshold}）` })
+  }
+
+  return alerts
+}
+
+const completedIssueRows = computed(() => {
+  return completedRows.value.flatMap((row) =>
+    buildCompletedAlertItems(row).map((alert, index) => ({
+      id: `completed-${row.id}-${alert.key}-${index}`,
+      row,
+      ...alert,
+    })),
+  )
+})
+
+const completedIssueCards = computed(() => {
+  const countByKey = (key) => completedIssueRows.value.filter((item) => item.key === key).length
+  return [
+    { key: 'no_an14', label: '无资产负债表', value: countByKey('no_an14'), note: 'AN14 未进入结果表', icon: '14', tone: 'tone-warning' },
+    { key: 'no_an15', label: '无利润表', value: countByKey('no_an15'), note: 'AN15 未进入结果表', icon: '15', tone: 'tone-warning' },
+    { key: 'no_an16', label: '无现金流量表', value: countByKey('no_an16'), note: 'AN16 未进入结果表', icon: '16', tone: 'tone-warning' },
+    { key: 'low_an14', label: '资产负债表行数过少', value: countByKey('low_an14'), note: `低于阈值 ${COMPLETED_ROW_THRESHOLDS.an14}`, icon: 'L14', tone: 'tone-danger' },
+    { key: 'low_an15', label: '利润表行数过少', value: countByKey('low_an15'), note: `低于阈值 ${COMPLETED_ROW_THRESHOLDS.an15}`, icon: 'L15', tone: 'tone-danger' },
+    { key: 'low_an16', label: '现金流量表行数过少', value: countByKey('low_an16'), note: `低于阈值 ${COMPLETED_ROW_THRESHOLDS.an16}`, icon: 'L16', tone: 'tone-danger' },
+  ]
+})
+
+const filteredCompletedIssues = computed(() => {
+  if (activeCompletedIssueFilter.value === 'all') return completedIssueRows.value
+  return completedIssueRows.value.filter((item) => item.key === activeCompletedIssueFilter.value)
+})
+
+const completedTotalCount = computed(() => filteredCompletedIssues.value.length)
+const completedTotalPages = computed(() => Math.max(1, Math.ceil(completedTotalCount.value / completedPageSize.value)))
+
+const paginatedCompletedIssues = computed(() => {
+  const start = (completedCurrentPage.value - 1) * completedPageSize.value
+  return filteredCompletedIssues.value.slice(start, start + completedPageSize.value)
+})
+
+const selectedCompletedAlertDetail = computed(() => {
+  if (!selectedCompletedAlert.value) return null
+  const config = completedIssueDefinitions[selectedCompletedAlert.value.key] || {
+    title: selectedCompletedAlert.value.label,
+    definition: '该规则定义暂未补充。',
+  }
+
+  const tableMap = Object.fromEntries((selectedCompletedAlert.value.row.monitorTables || []).map((item) => [item.code, item]))
+  let triggerReason = '当前规则已触发，但尚未补充原因说明。'
+
+  if (selectedCompletedAlert.value.key === 'no_an14') {
+    triggerReason = `该报告当前 AN14 entered = ${tableMap.AN14?.entered ? 'true' : 'false'}，因此判定资产负债表未进入结果表。`
+  } else if (selectedCompletedAlert.value.key === 'no_an15') {
+    triggerReason = `该报告当前 AN15 entered = ${tableMap.AN15?.entered ? 'true' : 'false'}，因此判定利润表未进入结果表。`
+  } else if (selectedCompletedAlert.value.key === 'no_an16') {
+    triggerReason = `该报告当前 AN16 entered = ${tableMap.AN16?.entered ? 'true' : 'false'}，因此判定现金流量表未进入结果表。`
+  } else if (selectedCompletedAlert.value.key === 'low_an14') {
+    triggerReason = `该报告 AN14 已入表，但当前行数为 ${tableMap.AN14?.count ?? 0}，低于阈值 ${tableMap.AN14?.threshold ?? '-'}，因此触发。`
+  } else if (selectedCompletedAlert.value.key === 'low_an15') {
+    triggerReason = `该报告 AN15 已入表，但当前行数为 ${tableMap.AN15?.count ?? 0}，低于阈值 ${tableMap.AN15?.threshold ?? '-'}，因此触发。`
+  } else if (selectedCompletedAlert.value.key === 'low_an16') {
+    triggerReason = `该报告 AN16 已入表，但当前行数为 ${tableMap.AN16?.count ?? 0}，低于阈值 ${tableMap.AN16?.threshold ?? '-'}，因此触发。`
+  }
+
+  return {
+    ...selectedCompletedAlert.value,
+    title: config.title,
+    definition: config.definition,
+    triggerReason,
+  }
+})
+
+const toggleCompletedIssueFilter = (key) => {
+  activeCompletedIssueFilter.value = activeCompletedIssueFilter.value === key ? 'all' : key
+}
+
+const setCompletedPage = (page) => {
+  completedCurrentPage.value = Math.min(Math.max(1, page), completedTotalPages.value)
+  completedJumpPageInput.value = String(completedCurrentPage.value)
+}
+
+const goPrevCompletedPage = () => setCompletedPage(completedCurrentPage.value - 1)
+const goNextCompletedPage = () => setCompletedPage(completedCurrentPage.value + 1)
+
+const submitCompletedJumpPage = () => {
+  const target = Number(completedJumpPageInput.value)
+  if (Number.isNaN(target)) {
+    completedJumpPageInput.value = String(completedCurrentPage.value)
+    return
+  }
+  setCompletedPage(target)
+}
+
+watch(
+  [activeSectionKey, activeRangeKey, activeReportType, activeCompletedIssueFilter, completedPageSize],
+  () => {
+    completedCurrentPage.value = 1
+    completedJumpPageInput.value = '1'
+  },
+)
+
+watch(completedTotalPages, (value) => {
+  if (completedCurrentPage.value > value) {
+    completedCurrentPage.value = value
+  }
+  completedJumpPageInput.value = String(completedCurrentPage.value)
 })
 
 const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 ${formatDayKey(dateWindow.value.end)}`)
@@ -330,44 +565,154 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
       <article class="workbench-panel monitor-detail-panel">
         <div class="monitor-filter-head">
           <div>
-            <span class="login-kicker">RECENT TASKS</span>
-            <h3>最近任务</h3>
-            <p class="monitor-placeholder-text">这里显示当前数量监测口径下的最新任务，使用 crawler 全量数据，不受上传人限制。</p>
+            <span class="login-kicker">COMPLETED TASK CHECK</span>
+            <h3>已完成任务监测</h3>
+            <p class="monitor-placeholder-text">这里只看当前窗口内已经完成的报告，重点检查三表是否齐全，以及三张表的行数是否低于阈值。</p>
           </div>
         </div>
 
+        <div class="monitor-kpi-grid monitor-completed-kpi-grid">
+          <article
+            v-for="metric in completedIssueCards"
+            :key="metric.key"
+            :class="['workbench-panel monitor-kpi-card', metric.tone, 'monitor-kpi-card-clickable', { active: activeCompletedIssueFilter === metric.key }]"
+            @click="toggleCompletedIssueFilter(metric.key)"
+          >
+            <span class="monitor-kpi-icon">{{ metric.icon }}</span>
+            <span class="monitor-kpi-label">{{ metric.label }}</span>
+            <strong class="monitor-kpi-value">{{ metric.value }}</strong>
+            <p>{{ metric.note }}</p>
+          </article>
+        </div>
+
+        <div class="monitor-filter-head monitor-completed-filter-row">
+          <button
+            v-if="activeCompletedIssueFilter !== 'all'"
+            class="quad-link page-btn"
+            type="button"
+            @click="activeCompletedIssueFilter = 'all'"
+          >
+            清空规则筛选
+          </button>
+        </div>
+
         <div class="history-table-wrap">
-          <table class="history-table monitor-history-table">
+          <table class="history-table monitor-history-table downstream-history-table">
             <thead>
               <tr>
                 <th>主体名称</th>
                 <th>报告类型</th>
-                <th>报告年份</th>
-                <th>报告季度</th>
-                <th>处理状态</th>
-                <th>创建时间</th>
+                <th>报告期</th>
+                <th>触发规则</th>
+                <th>完成时间</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in recentRows" :key="row.id">
+              <tr
+                v-for="item in paginatedCompletedIssues"
+                :key="item.id"
+                class="monitor-alert-row"
+                @click="selectedCompletedAlert = item"
+              >
                 <td class="monitor-name-cell">
-                  <strong>{{ row.company_name }}</strong>
-                  <small>{{ row.crmcode }}</small>
+                  <strong>{{ item.row.company_name }}</strong>
+                  <small>{{ item.row.crmcode }}</small>
                 </td>
-                <td>{{ reportTypeLabelMap[row.normalizedReportType] || row.normalizedReportType }}</td>
-                <td>{{ row.report_year }}</td>
-                <td>{{ row.report_quarter }}</td>
-                <td>
-                  <span :class="['status-pill', statusClassMap[row.normalizedStatus] || 'muted']">
-                    {{ statusLabelMap[row.normalizedStatus] || row.normalizedStatus }}
-                  </span>
-                </td>
-                <td>{{ row.create_time.slice(0, 16) }}</td>
+                <td>{{ reportTypeLabelMap[item.row.normalizedReportType] || item.row.normalizedReportType }}</td>
+                <td>{{ item.row.report_year }}{{ quarterLabelMap[item.row.report_quarter] || item.row.report_quarter }}</td>
+                <td><span class="status-pill danger">{{ item.label }}</span></td>
+                <td>{{ item.row.update_time.slice(0, 16) }}</td>
+              </tr>
+              <tr v-if="!paginatedCompletedIssues.length">
+                <td colspan="5" class="empty-row">当前筛选条件下暂无疑似问题</td>
               </tr>
             </tbody>
           </table>
+
+          <div class="history-pagination">
+            <div class="pagination-summary">
+              共 <strong>{{ completedTotalCount }}</strong> 条，当前第
+              <strong>{{ completedCurrentPage }}</strong> / <strong>{{ completedTotalPages }}</strong> 页
+            </div>
+
+            <div class="pagination-controls">
+              <label class="page-size-select">
+                <span>每页</span>
+                <select v-model="completedPageSize">
+                  <option :value="10">10</option>
+                  <option :value="20">20</option>
+                  <option :value="50">50</option>
+                </select>
+                <span>条</span>
+              </label>
+
+              <button class="quad-link page-btn" type="button" :disabled="completedCurrentPage === 1" @click="goPrevCompletedPage">上一页</button>
+
+              <button class="quad-link page-btn" type="button" :disabled="completedCurrentPage === completedTotalPages" @click="goNextCompletedPage">下一页</button>
+
+              <form class="jump-form" @submit.prevent="submitCompletedJumpPage">
+                <span>跳至</span>
+                <input v-model="completedJumpPageInput" type="number" min="1" :max="completedTotalPages" />
+                <span>页</span>
+                <button class="quad-link page-btn" type="submit">确定</button>
+              </form>
+            </div>
+          </div>
         </div>
       </article>
+    </div>
+
+    <div v-if="selectedCompletedAlertDetail" class="monitor-drawer-mask" @click.self="selectedCompletedAlert = null">
+      <aside class="monitor-detail-drawer">
+        <div class="monitor-drawer-head">
+          <div>
+            <span>ALERT DETAIL</span>
+            <h3>{{ selectedCompletedAlertDetail.title }}</h3>
+          </div>
+          <button class="monitor-drawer-close" @click="selectedCompletedAlert = null">×</button>
+        </div>
+
+        <div class="monitor-drawer-grid">
+          <article class="monitor-drawer-item">
+            <span>主体名称</span>
+            <strong>{{ selectedCompletedAlertDetail.row.company_name }}</strong>
+          </article>
+          <article class="monitor-drawer-item">
+            <span>报告类型</span>
+            <strong>{{ reportTypeLabelMap[selectedCompletedAlertDetail.row.normalizedReportType] || selectedCompletedAlertDetail.row.normalizedReportType }}</strong>
+          </article>
+          <article class="monitor-drawer-item">
+            <span>报告期</span>
+            <strong>{{ selectedCompletedAlertDetail.row.report_year }}{{ quarterLabelMap[selectedCompletedAlertDetail.row.report_quarter] || selectedCompletedAlertDetail.row.report_quarter }}</strong>
+          </article>
+          <article class="monitor-drawer-item">
+            <span>完成时间</span>
+            <strong>{{ selectedCompletedAlertDetail.row.update_time.slice(0, 16) }}</strong>
+          </article>
+        </div>
+
+        <article class="monitor-pageindex-card">
+          <strong>规则定义</strong>
+          <p class="monitor-placeholder-text">{{ selectedCompletedAlertDetail.definition }}</p>
+        </article>
+
+        <article class="monitor-pageindex-card">
+          <strong>本次为什么触发</strong>
+          <p class="monitor-placeholder-text">{{ selectedCompletedAlertDetail.triggerReason }}</p>
+        </article>
+
+        <article class="monitor-pageindex-card">
+          <strong>当前三表快照</strong>
+          <p class="monitor-placeholder-text">
+            {{
+              selectedCompletedAlertDetail.row.monitorTables
+                .filter((item) => !item.notApplicable)
+                .map((item) => `${item.code}: ${item.entered ? `已入表，行数 ${item.count}` : '未入表'}`)
+                .join(' / ')
+            }}
+          </p>
+        </article>
+      </aside>
     </div>
   </section>
 </template>

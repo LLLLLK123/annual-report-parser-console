@@ -173,82 +173,20 @@ export const monitoringProcessTasks = crawlerListRows.map((row) => ({
 }))
 
 const DOWNSTREAM_REFERENCE_DAY = '2026-08-26'
-const THREE_MAJOR_ROW_THRESHOLD = {
-  AN14: 35,
-  AN15: 20,
-  AN16: 15,
-}
 
 const dateOnly = (value) => (value ? value.slice(0, 10) : '')
-
-const buildThreeMajorTableStatus = (row, index) => {
-  if (row.report_type !== 'financial' && row.report_type !== 'hk') {
-    return [
-      { code: 'AN14', label: '资产负债表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN14, hasCodeIssue: false, entered: false, notApplicable: true },
-      { code: 'AN15', label: '利润表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN15, hasCodeIssue: false, entered: false, notApplicable: true },
-      { code: 'AN16', label: '现金流量表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN16, hasCodeIssue: false, entered: false, notApplicable: true },
-    ]
-  }
-
-  if (row.all_status === 'failed') {
-    return [
-      { code: 'AN14', label: '资产负债表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN14, hasCodeIssue: false, entered: false },
-      { code: 'AN15', label: '利润表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN15, hasCodeIssue: false, entered: false },
-      { code: 'AN16', label: '现金流量表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN16, hasCodeIssue: false, entered: false },
-    ]
-  }
-
-  if (row.all_status === 'processing') {
-    return [
-      { code: 'AN14', label: '资产负债表', count: 32, threshold: THREE_MAJOR_ROW_THRESHOLD.AN14, hasCodeIssue: false, entered: true },
-      { code: 'AN15', label: '利润表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN15, hasCodeIssue: false, entered: false },
-      { code: 'AN16', label: '现金流量表', count: 0, threshold: THREE_MAJOR_ROW_THRESHOLD.AN16, hasCodeIssue: false, entered: false },
-    ]
-  }
-
-  return [
-    { code: 'AN14', label: '资产负债表', count: 44 + (index % 6), threshold: THREE_MAJOR_ROW_THRESHOLD.AN14, hasCodeIssue: index % 5 === 0, entered: true },
-    { code: 'AN15', label: '利润表', count: 24 + (index % 5), threshold: THREE_MAJOR_ROW_THRESHOLD.AN15, hasCodeIssue: false, entered: true },
-    { code: 'AN16', label: '现金流量表', count: 18 + (index % 4), threshold: THREE_MAJOR_ROW_THRESHOLD.AN16, hasCodeIssue: false, entered: true },
-  ]
-}
 
 const downstreamRowsBase = crawlerListRows
   .filter((row) => row.all_status === 'success' || row.all_status === 'processing' || row.all_status === 'failed')
   .map((row, index) => {
     const isPublicLabel = row.is_public === 1 ? '公众报告' : '非公众报告'
-    const matchedUploadRows = uploadReportInformationRows.filter(
-      (item) =>
-        item.file_id === row.pageindex_doc_id ||
-        String(item.file_id) === String(row.document_id || ''),
-    )
-    const majorRows = structured3MajorRows.filter(
-      (item) =>
-        item.crm_code === row.crmcode &&
-        item.basic_year === row.report_year,
-    )
-    const noteRows = structuredNotesRows.filter(
-      (item) =>
-        item.crm_code === row.crmcode &&
-        item.basic_year === row.report_year,
-    )
-
-    const targetCount = matchedUploadRows.length || (row.report_type === 'financial' ? 6 : row.report_type === 'audit' ? 3 : 2)
-    const noteCount = noteRows.length || (row.all_status === 'success' ? 8 + (index % 4) * 3 : row.all_status === 'processing' ? 2 + (index % 2) : 0)
-    const threeMajorTables = buildThreeMajorTableStatus(row, index)
-    const yesterdayUpdateCount = dateOnly(row.update_time) === DOWNSTREAM_REFERENCE_DAY && row.all_status !== 'failed'
-      ? (threeMajorTables.filter((item) => item.entered && !item.notApplicable).length + (noteCount > 0 ? 1 : 0))
-      : 0
-    const allThreeMajorEntered = threeMajorTables.every((item) => item.notApplicable || item.entered)
-    const missingCodeTriggered = threeMajorTables.some((item) => item.entered && item.hasCodeIssue)
-    const lowRowTriggered = threeMajorTables.some((item) => item.entered && item.count < item.threshold)
-    const yesterdaySyncTriggered = yesterdayUpdateCount <= 0
-
+    const sameDayUpdated = dateOnly(row.update_time) === DOWNSTREAM_REFERENCE_DAY
+    const baseFinanceSynced = row.all_status === 'success' && sameDayUpdated && index % 4 !== 0
+    const baseFinanceNoteSynced = row.all_status === 'success' && sameDayUpdated && index % 5 !== 0
     const triggerReasons = []
-    if (yesterdaySyncTriggered) triggerReasons.push('前一日未进入下游表')
-    if (!allThreeMajorEntered && row.report_type === 'financial') triggerReasons.push('AN14-AN16 未全部进入')
-    if (missingCodeTriggered) triggerReasons.push('三表存在缺少 code 的记录')
-    if (lowRowTriggered) triggerReasons.push('三表行数低于经验阈值')
+
+    if (!baseFinanceSynced) triggerReasons.push('base_finance 未同步')
+    if (!baseFinanceNoteSynced) triggerReasons.push('base_finance_note_integrated 未同步')
 
     const downstreamStatusKey = triggerReasons.length ? 'triggered' : 'normal'
 
@@ -265,19 +203,13 @@ const downstreamRowsBase = crawlerListRows
       reportQuarter: quarterLabelMap[row.report_quarter] || '未知季度',
       parseStatus: allStatusLabelMap[row.all_status] || row.all_status,
       parseStatusKey: row.all_status,
-      notesStatus: noteCount > 0 ? '已完成' : row.all_status === 'failed' ? '失败' : '待完成',
       downstreamStatus: downstreamStatusKey === 'normal' ? '未触发' : '已触发',
       downstreamStatusKey,
-      notesCount: noteCount,
-      targetCount,
       syncTime: row.update_time.slice(0, 16),
-      yesterdayUpdateCount,
-      allThreeMajorEntered,
-      missingCodeTriggered,
-      lowRowTriggered,
-      yesterdaySyncTriggered,
+      monitorDate: DOWNSTREAM_REFERENCE_DAY,
+      baseFinanceSynced,
+      baseFinanceNoteSynced,
       triggerReasons,
-      threeMajorTables,
     }
   })
 
