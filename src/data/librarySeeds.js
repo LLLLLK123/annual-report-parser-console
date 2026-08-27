@@ -1,0 +1,506 @@
+import {
+  crawlerListRows,
+  normalizedOcrExtractTaskRows,
+  rawReportInformationRows,
+  structured3MajorRows,
+  structuredNotesRows,
+  uploadReportInformationRows,
+} from './sourceTables'
+import { allStatusLabelMap } from './uploadSeeds'
+
+const quarterLabelMap = {
+  1: '一季报',
+  2: '半年报',
+  3: '三季报',
+  4: '年报',
+}
+
+const typeLabelMap = {
+  financial: '财务报告',
+  audit: '审计报告',
+  prospectus: '招股说明书',
+  hk: '港股财务报告',
+}
+
+const quarterNameMap = {
+  1: '第一季度报告',
+  2: '半年度报告',
+  3: '第三季度报告',
+  4: '年度报告',
+}
+
+const fileTitleHintMap = {
+  financial: ['合并资产负债表', '合并利润表', '合并现金流量表', '财务报表附注'],
+  audit: ['审计意见', '关键审计事项', '财务报表审计范围', '附注审计说明'],
+  prospectus: ['募集资金用途', '风险因素', '发行概况', '财务摘要'],
+  hk: ['综合收益表', '综合资产负债表', '现金流量表', '财务附注'],
+}
+
+const fallbackNodeTemplates = {
+  financial: [
+    { name: '合并资产负债表', targetCode: 'AN14' },
+    { name: '合并利润表', targetCode: 'AN15' },
+    { name: '合并现金流量表', targetCode: 'AN16' },
+    { name: '主营业务分析', targetCode: 'AN01_A' },
+  ],
+  audit: [
+    { name: '审计意见', targetCode: null },
+    { name: '关键审计事项', targetCode: null },
+    { name: '形成意见的基础', targetCode: null },
+  ],
+  prospectus: [
+    { name: '发行概况', targetCode: null },
+    { name: '风险因素', targetCode: null },
+    { name: '募集资金运用', targetCode: null },
+  ],
+  hk: [
+    { name: '综合资产负债表', targetCode: 'AN14' },
+    { name: '综合收益表', targetCode: 'AN15' },
+    { name: '现金流量表', targetCode: 'AN16' },
+  ],
+}
+
+const formatMarkdownTable = (markdown, fallbackTitle) => {
+  if (!markdown) {
+    return `| 项目 | 数值 |\n| --- | --- |\n| ${fallbackTitle || '暂无原始表格数据'} | - |`
+  }
+
+  return markdown
+}
+
+const buildFallbackRawTables = (typeKey, scopeKey, rowId) => {
+  return (fallbackNodeTemplates[typeKey] || fallbackNodeTemplates.financial).map((item, index) => ({
+    id: `${scopeKey}-${typeKey}-fallback-raw-${rowId}-${index}`,
+    name: item.name,
+    pageRange: `${88 + index * 4}-${91 + index * 4}`,
+    location: `${typeLabelMap[typeKey]} / ${item.name}`,
+    markdown: formatMarkdownTable('', item.name),
+    targetCode: item.targetCode,
+  }))
+}
+
+const buildFallbackTargetTables = (typeKey, scopeKey, rowId) => {
+  return buildFallbackRawTables(typeKey, scopeKey, rowId)
+    .filter((item) => item.targetCode)
+    .map((item, index) => ({
+      id: `${scopeKey}-${typeKey}-fallback-target-${rowId}-${index}`,
+      code: item.targetCode,
+      name: item.name,
+      matchedData: `模拟命中 ${6 + index * 2} 个字段`,
+      rawTableLocation: item.location,
+      reportLocation: `PDF 第 ${item.pageRange.split('-')[0]} 页`,
+      markdown: item.markdown,
+      structured: buildStructuredRows(item.name, typeKey),
+    }))
+}
+
+const buildReportName = (row, typeKey) => {
+  const quarterName = quarterNameMap[row.report_quarter] || '年度报告'
+
+  if (typeKey === 'audit') {
+    return `${row.company_name}${row.report_year}年度审计报告.pdf`
+  }
+
+  if (typeKey === 'prospectus') {
+    return `${row.company_name}招股说明书.pdf`
+  }
+
+  if (typeKey === 'hk') {
+    return `${row.company_name}${row.report_year}${quarterName}-港股财务报告.pdf`
+  }
+
+  return `${row.company_name}${row.report_year}${quarterName}.pdf`
+}
+
+const realFinancialPdfUrl = 'https://file.finance.sina.com.cn/211.154.219.97:9494/MRGG/CNSESZ_STOCK/2021/2021-4/2021-04-15/7046535.PDF'
+
+const realFinancialStructured3MajorRows = {
+  AN14: [
+    { label: '货币资金', value: '2,289,930,662.70', unit: '元', code: 'FS_BS_CurrencyFunds_idou' },
+    { label: '交易性金融资产', value: '5,000,000.00', unit: '元', code: 'FS_BS_FinaAsseHeldForTrad_idou' },
+    { label: '应收账款', value: '5,331,087,824.31', unit: '元', code: 'FS_BS_AccountsReceivable_idou' },
+    { label: '应收款项融资', value: '4,093,505,526.04', unit: '元', code: 'FS_BS_ReceivablesFinancing_idou' },
+    { label: '资产总计', value: '23,410,737,751.72', unit: '元', code: 'FS_BS_TotalAssets_idou' },
+    { label: '负债合计', value: '17,048,994,131.84', unit: '元', code: 'FS_BS_TotalLiabilities_idou' },
+    { label: '所有者权益合计', value: '6,361,743,619.88', unit: '元', code: 'FS_BS_TotalOwnersEquity_idou' },
+  ],
+  AN15: [
+    { label: '营业总收入', value: '12,246,478,061.74', unit: '元', code: 'FS_IS_TotalOperatingRevenue' },
+    { label: '营业总成本', value: '12,079,436,551.98', unit: '元', code: 'FS_IS_TotalOperatingCosts' },
+    { label: '营业利润', value: '-843,380,640.40', unit: '元', code: 'FS_IS_OperatingProfit' },
+    { label: '利润总额', value: '-815,892,924.06', unit: '元', code: 'FS_IS_TotalProfit' },
+    { label: '净利润', value: '-792,038,510.96', unit: '元', code: 'FS_IS_NetProfit' },
+  ],
+  AN16: [
+    { label: '经营活动产生的现金流量净额', value: '603,017,422.22', unit: '元', code: 'FS_CF_NetCashFlowsFromOperatingActivities' },
+    { label: '投资活动产生的现金流量净额', value: '110,791,215.50', unit: '元', code: 'FS_CF_NetCashFlowsFromInvestingActivities' },
+    { label: '筹资活动产生的现金流量净额', value: '-912,213,967.13', unit: '元', code: 'FS_CF_NetCashFlowsFromFinancingActivities' },
+    { label: '期末现金及现金等价物余额', value: '1,409,214,922.24', unit: '元', code: 'FS_CF_EndingBalanceCashAndCashEquivalents' },
+  ],
+}
+
+const realFinancialStructuredNotesRows = {
+  AN01_A: [
+    { label: '建筑及装饰工程业务收入', value: '12,185,058,596.37', unit: '元', code: 'AU_oper_M01' },
+    { label: '收入占比', value: '99.50', unit: '%', code: 'AU_oper_P05' },
+    { label: '同比变化', value: '-5.94', unit: '%', code: 'AU_oper_M01_P01' },
+    { label: '工程金融', value: '43,262,862.23', unit: '元', code: 'AU_oper_M02' },
+  ],
+}
+
+const buildRealStructuredResult = (code, name) => {
+  const majorRows = realFinancialStructured3MajorRows[code]
+  const noteRows = realFinancialStructuredNotesRows[code]
+  const rows = majorRows || noteRows || []
+
+  return {
+    title: `${code} ${name}结构化结果`,
+    rows,
+  }
+}
+
+const realFinancialRawTables = [
+  {
+    id: 'real-17-raw-1',
+    name: '合并资产负债表',
+    pageRange: '89-94',
+    location: '第十二节 财务报告 / 二、财务报表 / 合并资产负债表',
+    targetCode: 'AN14',
+    markdown: `| 项目 | 2020 年12 月31 日 | 2019 年12 月31 日 |
+| --- | --- | --- |
+| 货币资金 | 2,289,930,662.70 | 3,061,991,656.02 |
+| 交易性金融资产 | 5,000,000.00 | 6,746,000.00 |
+| 应收账款 | 5,331,087,824.31 | 12,272,492,050.89 |
+| 应收款项融资 | 4,093,505,526.04 | - |
+| 资产总计 | 23,410,737,751.72 | 24,444,193,026.03 |
+| 负债合计 | 17,048,994,131.84 | 17,387,469,572.89 |
+| 所有者权益合计 | 6,361,743,619.88 | 7,056,723,453.14 |`,
+  },
+  {
+    id: 'real-17-raw-2',
+    name: '合并利润表',
+    pageRange: '95-98',
+    location: '第十二节 财务报告 / 二、财务报表 / 合并利润表',
+    targetCode: 'AN15',
+    markdown: `| 项目 | 2020 年度 | 2019 年度 |
+| --- | --- | --- |
+| 一、营业总收入 | 12,246,478,061.74 | 13,046,256,284.52 |
+| 二、营业总成本 | 12,079,436,551.98 | 12,369,593,092.85 |
+| 三、营业利润 | -843,380,640.40 | 239,335,081.97 |
+| 四、利润总额 | -815,892,924.06 | 219,316,718.30 |
+| 五、净利润 | -792,038,510.96 | 132,599,656.70 |`,
+  },
+  {
+    id: 'real-17-raw-3',
+    name: '合并现金流量表',
+    pageRange: '99-102',
+    location: '第十二节 财务报告 / 二、财务报表 / 合并现金流量表',
+    targetCode: 'AN16',
+    markdown: `| 项目 | 2020 年度 | 2019 年度 |
+| --- | --- | --- |
+| 经营活动产生的现金流量净额 | 603,017,422.22 | -997,165,223.07 |
+| 投资活动产生的现金流量净额 | 110,791,215.50 | -182,897,180.00 |
+| 筹资活动产生的现金流量净额 | -912,213,967.13 | 722,467,556.89 |
+| 期末现金及现金等价物余额 | 1,409,214,922.24 | 1,610,702,637.78 |`,
+  },
+  {
+    id: 'real-17-raw-4',
+    name: '主营业务分析',
+    pageRange: '16-18',
+    location: '第四节 经营情况讨论与分析 / 主营业务分析',
+    targetCode: 'AN01_A',
+    markdown: `| 项目 | 2020 | 2019 |
+| --- | --- | --- |
+| 建筑及建筑装饰业收入 | 12,185,058,596.37 | 12,953,938,212.45 |
+| 收入占比 | 99.50% | 99.29% |
+| 同比变化 | -5.94% | - |`,
+  },
+  {
+    id: 'real-17-raw-5',
+    name: '（一）建筑及装饰工程业务的收入确认',
+    pageRange: '85-88',
+    location: '第十二节 财务报告 / 一、审计报告 / 关键审计事项',
+    markdown: `| 关键审计事项 | 在审计中如何应对该事项 |
+| --- | --- |
+| 建筑及装饰工程业务收入确认 | 测试和评价收入确认相关内控；选取合同样本检查预算总成本及完工进度；现场核查项目形象进度并与账面记录比较。 |`,
+  },
+]
+
+const realFinancialTargetTables = [
+  {
+    id: 'real-17-target-1',
+    code: 'AN14',
+    name: '合并资产负债表',
+    matchedData: '命中结构化主表字段',
+    rawTableLocation: '第十二节 财务报告 / 二、财务报表',
+    reportLocation: 'PDF 第 89-110 页',
+    markdown: `| 项目 | 2020 年12 月31 日 | 2019 年12 月31 日 |
+| --- | --- | --- |
+| 货币资金 | 2,289,930,662.70 | 3,061,991,656.02 |
+| 交易性金融资产 | 5,000,000.00 | 6,746,000.00 |
+| 应收账款 | 5,331,087,824.31 | 12,272,492,050.89 |
+| 应收款项融资 | 4,093,505,526.04 |  |
+| 资产总计 | 23,410,737,751.72 | 24,444,193,026.03 |
+| 负债合计 | 17,048,994,131.84 | 17,387,469,572.89 |
+| 所有者权益合计 | 6,361,743,619.88 | 7,056,723,453.14 |`,
+    structured: buildRealStructuredResult('AN14', '合并资产负债表'),
+  },
+  {
+    id: 'real-17-target-2',
+    code: 'AN15',
+    name: '合并利润表',
+    matchedData: '命中结构化主表字段',
+    rawTableLocation: '第十二节 财务报告 / 二、财务报表',
+    reportLocation: 'PDF 第 89-110 页',
+    markdown: `| 项目 | 2020 年度 | 2019 年度 |
+| --- | --- | --- |
+| 一、营业总收入 | 12,246,478,061.74 | 13,046,256,284.52 |
+| 二、营业总成本 | 12,079,436,551.98 | 12,369,593,092.85 |
+| 三、营业利润 | -843,380,640.40 | 239,335,081.97 |
+| 五、净利润 | -792,038,510.96 | 132,599,656.70 |`,
+    structured: buildRealStructuredResult('AN15', '合并利润表'),
+  },
+  {
+    id: 'real-17-target-3',
+    code: 'AN16',
+    name: '合并现金流量表',
+    matchedData: '命中结构化主表字段',
+    rawTableLocation: '第十二节 财务报告 / 二、财务报表',
+    reportLocation: 'PDF 第 89-110 页',
+    markdown: `| 项目 | 2020 年度 | 2019 年度 |
+| --- | --- | --- |
+| 经营活动产生的现金流量净额 | 603,017,422.22 | -997,165,223.07 |
+| 投资活动产生的现金流量净额 | 110,791,215.50 | -182,897,180.00 |
+| 筹资活动产生的现金流量净额 | -912,213,967.13 | 722,467,556.89 |
+| 期末现金及现金等价物余额 | 1,409,214,922.24 | 1,610,702,637.78 |`,
+    structured: buildRealStructuredResult('AN16', '合并现金流量表'),
+  },
+  {
+    id: 'real-17-target-4',
+    code: 'AN01_A',
+    name: '主营业务分析',
+    matchedData: '命中附注与经营分析字段',
+    rawTableLocation: '第四节 经营情况讨论与分析',
+    reportLocation: 'PDF 第 16-33 页',
+    markdown: `| 项目 | 2020 | 2019 |
+| --- | --- | --- |
+| 建筑及建筑装饰业收入 | 12,185,058,596.37 | 12,953,938,212.45 |
+| 收入占比 | 99.50% | 99.29% |
+| 同比变化 | -5.94% | - |`,
+    structured: buildRealStructuredResult('AN01_A', '主营业务分析'),
+  },
+]
+
+const realFinancialCase = {
+  id: 'public-financial-real-17',
+  reportName: '深圳广田集团股份有限公司2020年年度报告.pdf',
+  crmCode: 'IB001193',
+  reportType: '财务报告',
+  latestPeriod: '2020年报',
+  fetchedAt: '2026-08-20 18:39',
+  parseStatus: '已完成',
+  companyName: '深圳广田集团股份有限公司',
+  latestReportPeriod: '2020年报',
+  allReportPeriods: ['2020年报', '2019年报'],
+  rawTableCount: 207,
+  targetTableCount: 36,
+  matchedTableCount: 36,
+  fileUrl: realFinancialPdfUrl,
+  pdfPreview: {
+    fileName: '深圳广田集团股份有限公司2020年年度报告.pdf',
+    pageHint: '当前定位：PDF 第 89-110 页',
+    sectionPath: '第十二节 财务报告 > 二、财务报表',
+    note: '已接入真实 PDF URL；后续可直接替换为真实 PDF 在线预览组件。',
+  },
+  rawTables: realFinancialRawTables,
+  targetTables: realFinancialTargetTables,
+  reportTreePreview: ['第十二节 财务报告', '一、审计报告', '二、财务报表', '第四节 经营情况讨论与分析'],
+  reportTreeDataPreview: ['AN14 合并资产负债表', 'AN15 合并利润表', 'AN16 合并现金流量表', 'AN01_A 主营业务分析'],
+}
+
+const buildStructuredRows = (tableName, typeKey) => {
+  const majorRows = structured3MajorRows.slice(0, 4).map((item) => ({
+    label: item.report_item_name,
+    value: item.processed_value || item.raw_value || '--',
+    unit: item.unit || '',
+    code: item.metric_code || '--',
+  }))
+
+  const noteRows = structuredNotesRows.slice(0, 2).map((item) => ({
+    label: item.item,
+    value: item.value || '--',
+    unit: item.unit || '',
+    code: item.code || '--',
+  }))
+
+  return {
+    title: `${typeLabelMap[typeKey]} · ${tableName}结构化结果`,
+    rows: [...majorRows, ...noteRows],
+  }
+}
+
+const buildTreePreview = (typeKey) => {
+  if (typeKey === 'audit') {
+    return {
+      directory: ['审计意见', '形成意见的基础', '关键审计事项', '管理层责任'],
+      data: ['段落节点', '页码定位', '审计正文命中', '附注引用关系'],
+    }
+  }
+
+  if (typeKey === 'prospectus') {
+    return {
+      directory: ['发行概况', '风险因素', '募集资金运用', '财务会计信息'],
+      data: ['章节目录', '标题链路', '关键字段定位', '原文上下文提取'],
+    }
+  }
+
+  if (typeKey === 'hk') {
+    return {
+      directory: ['综合财务报表', '附注', '管理层讨论', '公司治理'],
+      data: ['中英文字段定位', '页码映射', '表格识别节点', '双语标题关系'],
+    }
+  }
+
+  return {
+    directory: ['董事会报告', '财务报表', '合并资产负债表', '附注'],
+    data: ['节点层级', '标题链路', '页码定位', '原始报告窗口联动'],
+  }
+}
+
+const createLibraryRows = (rows, typeKey, scopeKey) => {
+  const matchedRows = rows.filter((row) => row.report_type === typeKey)
+  const sourceRows = matchedRows.length ? matchedRows : rows
+
+  return sourceRows.slice(0, 8).map((row, index) => {
+    const titleHints = fileTitleHintMap[typeKey]
+    const rawSlice = rawReportInformationRows.slice(index, index + 4)
+    const targetSlice = uploadReportInformationRows.slice(index, index + 4)
+    const treePreview = buildTreePreview(typeKey)
+    const rawTables = rawSlice.length
+      ? rawSlice.map((item, rawIndex) => {
+          const fallbackTitle = titleHints[rawIndex % titleHints.length]
+          return {
+            id: `${scopeKey}-${typeKey}-raw-${item.id}-${rawIndex}`,
+            name: item.table_title || item.node_title || fallbackTitle,
+            pageRange: `${item.page_start || 1}-${item.page_end || item.page_start || 1}`,
+            location: item.node_path || `${typeLabelMap[typeKey]} > ${fallbackTitle}`,
+            markdown: formatMarkdownTable(item.markdown_table, fallbackTitle),
+            targetCode: ['AN14', 'AN15', 'AN16', 'AN01_A'][rawIndex] || null,
+          }
+        })
+      : buildFallbackRawTables(typeKey, scopeKey, row.id)
+    const targetTables = targetSlice.length
+      ? targetSlice.map((item, targetIndex) => {
+          const fallbackTitle = titleHints[targetIndex % titleHints.length]
+          const tableName = item.table_title || item.node_title || fallbackTitle
+          return {
+            id: `${scopeKey}-${typeKey}-target-${item.id}-${targetIndex}`,
+            code: item.table_code || ['AN14', 'AN15', 'AN16', 'AN01_A'][targetIndex] || null,
+            name: tableName,
+            matchedData: `${(targetIndex + 2) * 5} 个命中字段`,
+            rawTableLocation: item.node_path || `${typeLabelMap[typeKey]} > ${tableName}`,
+            reportLocation: `PDF 第 ${item.page_start || 1} 页`,
+            markdown: formatMarkdownTable(item.markdown_table, tableName),
+            structured: buildStructuredRows(tableName, typeKey),
+          }
+        })
+      : buildFallbackTargetTables(typeKey, scopeKey, row.id)
+
+    return {
+      id: `${scopeKey}-${typeKey}-${row.id}`,
+      uploaderUsername: row.uploader_username || '',
+      fileUrl: row.file_url || '',
+      reportName: buildReportName(row, typeKey),
+      crmCode: row.crmcode,
+      reportType: typeLabelMap[typeKey],
+      latestPeriod: `${row.report_year}${quarterLabelMap[row.report_quarter] || ''}`,
+      fetchedAt: row.create_time.slice(0, 16),
+      parseStatus: allStatusLabelMap[row.all_status] || row.all_status,
+      companyName: row.company_name,
+      latestReportPeriod: `${row.report_year}${quarterLabelMap[row.report_quarter] || ''}`,
+      allReportPeriods: [
+        `${row.report_year}${quarterLabelMap[row.report_quarter] || ''}`,
+        `${row.report_year - 1}年报`,
+      ],
+      rawTableCount: 208 + index * 12 + (typeKey === 'financial' ? 20 : 0),
+      targetTableCount: Math.max(16, normalizedOcrExtractTaskRows.length - (index % 4) * 3),
+      matchedTableCount: 10 + (index % 5) * 2,
+      pdfPreview: {
+        fileName: buildReportName(row, typeKey),
+        pageHint: `当前定位：PDF 第 ${80 + index * 9} 页`,
+        sectionPath: `${typeLabelMap[typeKey]} > ${titleHints[index % titleHints.length]}`,
+        note: row.file_url?.startsWith('http')
+          ? '当前已接入真实 PDF 链接，可直接用于演示原文预览与页码定位。'
+          : '这里后续可替换为真实 PDF 预览组件；当前先预留原文窗口和定位信息。',
+      },
+      rawTables,
+      targetTables,
+      reportTreePreview: treePreview.directory,
+      reportTreeDataPreview: treePreview.data,
+    }
+  })
+}
+
+export const libraryScopes = [
+  { key: 'public', label: '公众报告' },
+  { key: 'private', label: '非公众报告' },
+]
+
+export const publicLibraryTypes = [
+  { key: 'financial', label: '财务报告' },
+  { key: 'audit', label: '审计报告' },
+  { key: 'prospectus', label: '招股说明书' },
+  { key: 'hk', label: '港股财务报告' },
+]
+
+export const libraryCollectionMap = {
+  public: {
+    financial: [
+      realFinancialCase,
+      ...createLibraryRows(
+        crawlerListRows.filter((row) => row.is_public === 1 && row.crmcode !== 'IB001193'),
+        'financial',
+        'public',
+      ),
+    ],
+    audit: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 1),
+      'audit',
+      'public',
+    ),
+    prospectus: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 1),
+      'prospectus',
+      'public',
+    ),
+    hk: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 1),
+      'hk',
+      'public',
+    ),
+  },
+  private: {
+    financial: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 2),
+      'financial',
+      'private',
+    ),
+    audit: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 2),
+      'audit',
+      'private',
+    ),
+    prospectus: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 2),
+      'prospectus',
+      'private',
+    ),
+    hk: createLibraryRows(
+      crawlerListRows.filter((row) => row.is_public === 2),
+      'hk',
+      'private',
+    ),
+  },
+}
+
+export const getLibraryTypeLabel = (key) => typeLabelMap[key] || key
