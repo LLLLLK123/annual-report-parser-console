@@ -28,7 +28,6 @@ import {
 } from './data/uploadSeeds'
 import { configReportTypes, targetFieldConfigSeed, targetTableConfigSeed } from './data/configSeeds'
 
-const theme = ref('light')
 const activeView = ref('home')
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
@@ -257,10 +256,6 @@ const paginatedTargetFieldConfigs = computed(() => {
   const start = (safePage - 1) * fieldConfigPageSize.value
   return filteredTargetFieldConfigs.value.slice(start, start + fieldConfigPageSize.value)
 })
-
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-}
 
 function hasAccessToView(view, role = currentRole.value) {
   const allowedRoles = viewRoleMap[view]
@@ -775,9 +770,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div :data-theme="theme" class="landing-shell" id="home">
+  <div class="landing-shell" id="home">
     <AppTopbar
-      :theme="theme"
       :active-view="activeView"
       :nav-items="visibleNavItems"
       :is-authenticated="isAuthenticated"
@@ -787,7 +781,6 @@ onBeforeUnmount(() => {
       :password-form="passwordForm"
       :password-message="passwordMessage"
       @navigate="navigateTo"
-      @toggle-theme="toggleTheme"
       @toggle-account-menu="toggleAccountMenu"
       @toggle-password-panel="togglePasswordPanel"
       @submit-password-change="submitPasswordChange"

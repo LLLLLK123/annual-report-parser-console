@@ -1,6 +1,5 @@
 <script setup>
 defineProps({
-  theme: { type: String, required: true },
   activeView: { type: String, required: true },
   navItems: { type: Array, required: true },
   isAuthenticated: { type: Boolean, required: true },
@@ -13,7 +12,6 @@ defineProps({
 
 const emit = defineEmits([
   'navigate',
-  'toggle-theme',
   'toggle-account-menu',
   'toggle-password-panel',
   'submit-password-change',
@@ -44,27 +42,6 @@ const emit = defineEmits([
     </nav>
 
     <div class="topbar-actions">
-      <button
-        class="theme-toggle"
-        type="button"
-        :aria-pressed="theme === 'dark'"
-        :title="theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'"
-        @click="emit('toggle-theme')"
-      >
-        <span class="theme-track">
-          <span class="theme-backdrop">
-            <span class="theme-cloud cloud-a"></span>
-            <span class="theme-cloud cloud-b"></span>
-            <span class="theme-star star-a"></span>
-            <span class="theme-star star-b"></span>
-            <span class="theme-star star-c"></span>
-          </span>
-          <span class="theme-thumb">
-            <span class="theme-thumb-icon">{{ theme === 'dark' ? '☾' : '☼' }}</span>
-          </span>
-        </span>
-      </button>
-
       <button class="account-trigger" type="button" @click="emit('toggle-account-menu')">
         <span class="account-trigger-icon">◌</span>
         <span>{{ isAuthenticated ? currentUser?.username : '登录' }}</span>
