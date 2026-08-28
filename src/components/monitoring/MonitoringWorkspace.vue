@@ -24,7 +24,7 @@ const activeTab = ref('count')
         <div class="workbench-head">
           <span class="hero-label">OPERATIONS MONITORING</span>
           <h1>运营监测</h1>
-          <p>监测报告接入、解析处理及数据链路运行情况</p>
+          <!-- <p>监测报告接入、解析处理及数据链路运行情况</p> -->
         </div>
       </div>
 

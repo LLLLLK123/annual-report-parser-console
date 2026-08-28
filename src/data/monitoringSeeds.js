@@ -23,7 +23,7 @@ export const monitoringCountSections = [
     title: '公众报告',
     englishLabel: 'PUBLIC REPORTS',
     sourceTag: '爬虫来源',
-    description: '对应 crawler_list 中 is_public = 1 的公开报告任务，后续统计总量、新增、已完成、待完成、失败等指标。',
+    // description: '对应 crawler_list 中 is_public = 1 的公开报告任务，后续统计总量、新增、已完成、待完成、失败等指标。',
     metrics: ['总量', '新增', '已完成', '待完成', '失败'],
   },
   {

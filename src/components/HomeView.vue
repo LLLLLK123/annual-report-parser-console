@@ -20,8 +20,8 @@
 
       <div class="hero-copy">
         <span class="hero-label">OCR · PARSING · EXTRACTION</span>
-        <h1>报告解析中台</h1>
-        <p>面向 OCR、结构化解析、目标字段提取与入库链路的统一入口。</p>
+        <h1>财务文档智能解析平台iDoc</h1>
+        <!-- <p>面向 OCR、结构化解析、目标字段提取与入库链路的统一入口。</p> -->
       </div>
     </section>
   </main>

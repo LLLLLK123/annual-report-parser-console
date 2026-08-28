@@ -134,7 +134,7 @@ const resetStatusFilter = (event) => {
         <div class="workbench-head">
           <span class="hero-label">UPLOAD WORKBENCH</span>
           <h1>上传工作台</h1>
-          <p>上半区直接选择报告类型上传文件，下半区沉淀历史记录与处理明细。</p>
+          <!-- <p>上半区直接选择报告类型上传文件，下半区沉淀历史记录与处理明细。</p> -->
         </div>
       </div>
 

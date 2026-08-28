@@ -64,7 +64,7 @@ const emit = defineEmits([
         <div class="workbench-head">
           <span class="hero-label">PARSING CONFIGURATION</span>
           <h1>解析配置</h1>
-          <p>参考目标表任务定义与字段映射规则，统一维护四类报告的目标表配置与目标字段配置。</p>
+          <!-- <p>参考目标表任务定义与字段映射规则，统一维护四类报告的目标表配置与目标字段配置。</p> -->
         </div>
       </div>
 

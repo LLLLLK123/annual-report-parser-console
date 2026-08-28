@@ -432,7 +432,7 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
       <div class="monitor-section-intro">
         <span>数量监测</span>
         <h2>数量监测</h2>
-        <p>先按公开 / 非公开两类来源拆开看，再用时间窗口和报告类型组合筛选数量变化。</p>
+        <!-- <p>先按公开 / 非公开两类来源拆开看，再用时间窗口和报告类型组合筛选数量变化。</p> -->
       </div>
 
       <div class="monitor-header-filters">
@@ -503,7 +503,7 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
             <div>
               <span class="login-kicker">TREND</span>
               <h3>任务趋势</h3>
-              <p class="monitor-placeholder-text">先看新增任务与完成任务的日趋势，满足当前交付展示。</p>
+              <!-- <p class="monitor-placeholder-text">先看新增任务与完成任务的日趋势，满足当前交付展示。</p> -->
             </div>
             <div class="monitor-legend">
               <span><i class="legend-dot added"></i>新增任务</span>
@@ -567,7 +567,7 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
           <div>
             <span class="login-kicker">COMPLETED TASK CHECK</span>
             <h3>已完成任务监测</h3>
-            <p class="monitor-placeholder-text">这里只看当前窗口内已经完成的报告，重点检查三表是否齐全，以及三张表的行数是否低于阈值。</p>
+            <!-- <p class="monitor-placeholder-text">这里只看当前窗口内已经完成的报告，重点检查三表是否齐全，以及三张表的行数是否低于阈值。</p> -->
           </div>
         </div>
 

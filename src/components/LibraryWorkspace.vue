@@ -414,7 +414,6 @@ watch(filteredReports, () => {
         <div class="workbench-head">
           <span class="hero-label">REPORT LIBRARY</span>
           <h1>报告库</h1>
-          <p>公众 / 非公众共用一套报告清单与解析结果入口，后续直接替换为真实查询结果即可。</p>
         </div>
       </div>
 
@@ -557,7 +556,6 @@ watch(filteredReports, () => {
                     <td>{{ row.year }}</td>
                     <td>{{ row.quarter }}</td>
                     <td>{{ row.reportType }}</td>
-                    <td>{{ row.fetchedAt }}</td>
                     <td>
                       <button
                         :class="['library-status-trigger', { clickable: canOpenResult(row) }]"
@@ -569,6 +567,7 @@ watch(filteredReports, () => {
                         {{ row.parseStatus }}
                       </button>
                     </td>
+                    <td>{{ row.fetchedAt }}</td>
                     <td>
                       <button
                         :class="['ghost-action-btn', { disabled: !canOpenResult(row) }]"
@@ -636,7 +635,6 @@ watch(filteredReports, () => {
             <div>
               <span>全量解析结果</span>
               <h2>{{ selectedReport.reportName }}</h2>
-              <p>左侧为目录树，中间查看当前目录对应的 Markdown / JSON，右侧查看 PDF 原文定位。</p>
             </div>
             <button class="library-modal-close" type="button" @click="closeFullResultModal">×</button>
           </div>
@@ -732,7 +730,6 @@ watch(filteredReports, () => {
             <div>
               <span>解析结果</span>
               <h2>{{ selectedReport.reportName }}</h2>
-              <p>最左侧是 PageIndex 结构目录，依次联动 PDF、原始表格，以及该节点对应的结构化结果。</p>
             </div>
             <button class="library-modal-close" type="button" @click="closeParseResultModal">×</button>
           </div>

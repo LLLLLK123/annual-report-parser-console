@@ -278,7 +278,7 @@ watch(totalPages, (value) => {
       <div class="monitor-section-intro">
         <span>下游监测</span>
         <h2>下游监测</h2>
-        <p>这里统一检查下游目标表在所选时间范围内是否发生同步成功，当前支持“当日未同步”与“连续N天无增量”两类规则。</p>
+        <!-- <p>这里统一检查下游目标表在所选时间范围内是否发生同步成功，当前支持“当日未同步”与“连续N天无增量”两类规则。</p> -->
       </div>
 
       <div class="monitor-header-filters">
@@ -321,7 +321,7 @@ watch(totalPages, (value) => {
         <div>
           <span>DOWNSTREAM DELIVERY</span>
           <h3>{{ currentScopeMeta.label }}</h3>
-          <p>默认监测当天，也支持设置开始与结束日期。当前统一按“当日未同步”和“连续N天无增量”规则检查所有纳入监测的下游表。</p>
+          <!-- <p>默认监测当天，也支持设置开始与结束日期。当前统一按“当日未同步”和“连续N天无增量”规则检查所有纳入监测的下游表。</p> -->
         </div>
         <div class="monitor-source-badge">表级监测</div>
       </div>
@@ -345,7 +345,7 @@ watch(totalPages, (value) => {
         <div>
           <span class="login-kicker">DOWNSTREAM ALERTS</span>
           <h3>触发告警台账</h3>
-          <p class="monitor-placeholder-text">支持按告警名称和表名模糊搜索。点击“解决”后，该告警会从当前台账中消失。</p>
+          <!-- <p class="monitor-placeholder-text">支持按告警名称和表名模糊搜索。点击“解决”后，该告警会从当前台账中消失。</p> -->
         </div>
 
         <div class="monitor-inline-filters">
