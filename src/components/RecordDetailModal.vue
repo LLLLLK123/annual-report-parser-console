@@ -16,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const selectedNodeId = ref(null)
+const nodeKeyword = ref('')
 
 const parseMarkdownTable = (markdown) => {
   if (!markdown) return { headers: [], rows: [] }
@@ -138,8 +139,19 @@ const detailNodes = computed(() => {
 })
 
 const selectedNode = computed(() => {
-  const nodes = detailNodes.value
+  const nodes = filteredNodes.value
   return nodes.find((item) => item.id === selectedNodeId.value) || nodes[0] || null
+})
+
+const filteredNodes = computed(() => {
+  const keyword = nodeKeyword.value.trim().toLowerCase()
+  if (!keyword) return detailNodes.value
+
+  return detailNodes.value.filter((item) =>
+    [item.name, item.location, item.targetCode]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword)),
+  )
 })
 
 const pdfEmbedUrl = computed(() => {
@@ -191,6 +203,7 @@ watch(
   () => [props.show, props.record?.id],
   () => {
     selectedNodeId.value = detailNodes.value[0]?.id || null
+    nodeKeyword.value = ''
   },
   { immediate: true },
 )
@@ -211,12 +224,19 @@ watch(
       <div class="library-preview-grid">
         <article class="library-result-card">
           <div class="library-result-card-head">
-            <span>PageIndex Node</span>
-            <h3>节点结构 / 点击切换内容</h3>
+            <span>目标表名</span>
+            <h3>表名</h3>
+          </div>
+          <div class="library-node-filter">
+            <input
+              v-model="nodeKeyword"
+              type="text"
+              placeholder="搜索表名"
+            />
           </div>
           <div class="library-node-list">
             <button
-              v-for="node in detailNodes"
+              v-for="node in filteredNodes"
               :key="node.id"
               :class="['library-node-item', { active: selectedNode?.id === node.id }]"
               type="button"
@@ -226,8 +246,8 @@ watch(
               <span>页码：{{ node.pageRange }}</span>
               <small>{{ node.location }}</small>
             </button>
-            <div v-if="!detailNodes.length" class="library-empty-table compact">
-              当前记录暂无可用节点
+            <div v-if="!filteredNodes.length" class="library-empty-table compact">
+              当前记录暂无匹配表名
             </div>
           </div>
         </article>

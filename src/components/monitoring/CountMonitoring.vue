@@ -204,7 +204,7 @@ const buildLinePath = (field) => {
 const distributionItems = computed(() => {
   const rows = filteredSectionRows.value.filter((row) => inWindow(row.createdAt))
   return [
-    { key: 'success', label: '已完成', value: rows.filter((row) => row.normalizedStatus === 'success').length, color: '#59cb61' },
+    { key: 'success', label: '已完成', value: rows.filter((row) => row.normalizedStatus === 'success').length, color: '#4b67d9' },
     { key: 'processing', label: '处理中', value: rows.filter((row) => row.normalizedStatus === 'processing').length, color: '#58a6ff' },
     { key: 'pending', label: '待处理', value: rows.filter((row) => row.normalizedStatus === 'pending').length, color: '#f4bf4f' },
     { key: 'failed', label: '失败', value: rows.filter((row) => row.normalizedStatus === 'failed').length, color: '#ff7b72' },
