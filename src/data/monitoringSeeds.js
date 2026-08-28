@@ -174,6 +174,23 @@ export const monitoringProcessTasks = crawlerListRows.map((row) => ({
 
 const DOWNSTREAM_REFERENCE_DAY = '2026-08-26'
 
+export const downstreamTableCatalog = [
+  'base_finance',
+  'base_finance_note_integrated',
+  'base_ocr_accounts_payable',
+  'base_ocr_accounts_receivable',
+  'base_ocr_accounts_receivable_info',
+  'base_ocr_advance_payment',
+  'base_ocr_deposit_received',
+  'base_ocr_joint_ventures',
+  'base_ocr_main_subsidiaries',
+  'base_ocr_notes_inventory',
+  'base_ocr_other_payables',
+  'base_ocr_other_receivables',
+  'base_ocr_other_related_parties',
+  'base_ocr_overseas_assets',
+]
+
 const dateOnly = (value) => (value ? value.slice(0, 10) : '')
 
 const downstreamRowsBase = crawlerListRows
@@ -181,14 +198,27 @@ const downstreamRowsBase = crawlerListRows
   .map((row, index) => {
     const isPublicLabel = row.is_public === 1 ? '公众报告' : '非公众报告'
     const sameDayUpdated = dateOnly(row.update_time) === DOWNSTREAM_REFERENCE_DAY
-    const baseFinanceSynced = row.all_status === 'success' && sameDayUpdated && index % 4 !== 0
-    const baseFinanceNoteSynced = row.all_status === 'success' && sameDayUpdated && index % 5 !== 0
-    const triggerReasons = []
+    const publicFailedTables = new Set([
+      'base_ocr_accounts_payable',
+      'base_ocr_joint_ventures',
+      'base_ocr_other_receivables',
+      'base_ocr_overseas_assets',
+    ])
+    const privateFailedTables = new Set([
+      'base_finance_note_integrated',
+      'base_ocr_accounts_receivable_info',
+      'base_ocr_notes_inventory',
+    ])
+    const failedTables = row.is_public === 1 ? publicFailedTables : privateFailedTables
+    const canSync = row.all_status === 'success' && sameDayUpdated
+    const downstreamSyncMap = Object.fromEntries(
+      downstreamTableCatalog.map((tableKey) => [tableKey, canSync && !failedTables.has(tableKey)])
+    )
+    const triggerReasons = downstreamTableCatalog
+      .filter((tableKey) => !downstreamSyncMap[tableKey])
+      .map((tableKey) => `${tableKey} 未同步`)
 
-    if (!baseFinanceSynced) triggerReasons.push('base_finance 未同步')
-    if (!baseFinanceNoteSynced) triggerReasons.push('base_finance_note_integrated 未同步')
-
-    const downstreamStatusKey = triggerReasons.length ? 'triggered' : 'normal'
+    const downstreamStatusKey = triggerReasons.length > 0 ? 'triggered' : 'normal'
 
     return {
       id: `downstream-${row.id}`,
@@ -207,8 +237,7 @@ const downstreamRowsBase = crawlerListRows
       downstreamStatusKey,
       syncTime: row.update_time.slice(0, 16),
       monitorDate: DOWNSTREAM_REFERENCE_DAY,
-      baseFinanceSynced,
-      baseFinanceNoteSynced,
+      downstreamSyncMap,
       triggerReasons,
     }
   })

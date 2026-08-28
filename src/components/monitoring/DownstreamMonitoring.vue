@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { downstreamTableCatalog } from '../../data/monitoringSeeds'
 
 const props = defineProps({
   downstreamRows: { type: Array, required: true },
@@ -22,31 +23,19 @@ const scopeOptions = [
   { key: 'private', label: '非公众报告' },
 ]
 
-const downstreamTableConfigs = [
-  {
-    key: 'base_finance',
-    label: 'base_finance',
-    getStatus: (row) => row.baseFinanceSynced,
-  },
-  {
-    key: 'base_finance_note_integrated',
-    label: 'base_finance_note_integrated',
-    getStatus: (row) => row.baseFinanceNoteSynced,
-  },
-]
+const downstreamTableConfigs = downstreamTableCatalog.map((key) => ({
+  key,
+  label: key,
+  getStatus: (row) => row.downstreamSyncMap?.[key] === true,
+}))
 
-const alertRuleDefinitions = {
-  base_finance: {
-    title: 'base_finance 当日未同步',
-    definition: '在选定监测日期范围内，如果下游表 base_finance 当天没有同步成功记录，则触发该告警。',
-  },
-  base_finance_note_integrated: {
-    title: 'base_finance_note_integrated 当日未同步',
-    definition: '在选定监测日期范围内，如果下游表 base_finance_note_integrated 当天没有同步成功记录，则触发该告警。',
-  },
+const unifiedAlertRule = {
+  key: 'daily_not_synced',
+  title: '当日未同步',
+  definition: '在选定监测日期范围内，如果某张下游表当天没有任何同步成功记录，则触发该告警。',
 }
 
-const todayKey = props.referenceDate
+const todayKey = '2026-08-28'
 
 const parseDate = (value) => {
   if (!value) return null
@@ -137,8 +126,8 @@ const monitorLedgerRows = computed(() => {
         tableKey: table.key,
         tableLabel: table.label,
         synced,
-        alertKey: table.key,
-        alertLabel: `${table.label} 当日未同步`,
+        alertKey: unifiedAlertRule.key,
+        alertLabel: unifiedAlertRule.title,
         totalRows,
         syncedRows: syncedRows.length,
         latestSyncTime,
@@ -159,7 +148,7 @@ const filteredIssueRows = computed(() => {
     return [
       row.tableLabel,
       row.alertLabel,
-      alertRuleDefinitions[row.alertKey]?.title,
+      unifiedAlertRule.title,
       row.monitorDate,
     ]
       .filter(Boolean)
@@ -178,15 +167,10 @@ const paginatedIssueRows = computed(() => {
 const selectedAlertDetail = computed(() => {
   if (!selectedAlert.value) return null
 
-  const config = alertRuleDefinitions[selectedAlert.value.alertKey] || {
-    title: selectedAlert.value.alertLabel,
-    definition: '该规则定义暂未补充。',
-  }
-
   return {
     ...selectedAlert.value,
-    title: config.title,
-    definition: config.definition,
+    title: unifiedAlertRule.title,
+    definition: unifiedAlertRule.definition,
     triggerReason:
       selectedAlert.value.totalRows === 0
         ? `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下没有任何记录进入监测口径，因此 ${selectedAlert.value.tableLabel} 没有发生同步，触发告警。`
@@ -237,7 +221,7 @@ watch(totalPages, (value) => {
       <div class="monitor-section-intro">
         <span>下游监测</span>
         <h2>下游监测</h2>
-        <p>这里只看两张下游表是否同步：base_finance 与 base_finance_note_integrated。</p>
+        <p>这里统一检查下游目标表在所选时间范围内是否发生同步成功，当前包含财务主表与多张附注下游表。</p>
       </div>
 
       <div class="monitor-header-filters">
@@ -279,7 +263,7 @@ watch(totalPages, (value) => {
         <div>
           <span>DOWNSTREAM DELIVERY</span>
           <h3>{{ currentScopeMeta.label }}</h3>
-          <p>默认监测当天，也支持设置开始与结束日期。当前仅检查两张下游表在所选时间范围内是否同步成功。</p>
+          <p>默认监测当天，也支持设置开始与结束日期。当前统一按“当日未同步”规则检查所有纳入监测的下游表。</p>
         </div>
         <div class="monitor-source-badge">表级监测</div>
       </div>
@@ -335,7 +319,7 @@ watch(totalPages, (value) => {
               @click="selectedAlert = item"
             >
               <td>
-                <strong>{{ alertRuleDefinitions[item.alertKey]?.title || item.alertLabel }}</strong>
+                <strong>{{ item.alertLabel || unifiedAlertRule.title }}</strong>
               </td>
               <td>{{ item.tableLabel }}</td>
               <td>{{ item.monitorDate }}</td>

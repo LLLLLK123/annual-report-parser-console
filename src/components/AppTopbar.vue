@@ -1,4 +1,6 @@
 <script setup>
+import brandLogo from '../img/logo.png'
+
 defineProps({
   activeView: { type: String, required: true },
   navItems: { type: Array, required: true },
@@ -22,10 +24,12 @@ const emit = defineEmits([
 <template>
   <header class="landing-topbar">
     <div class="brand">
-      <div class="brand-mark">⚡</div>
+      <div class="brand-mark">
+        <img :src="brandLogo" alt="iDoc logo" />
+      </div>
       <div>
-        <strong>Deloitte</strong>
-        <span>FINANCIAL INTELLIGENCE</span>
+        <strong>财务文档智能解析平台</strong>
+        <span>iDoc</span>
       </div>
     </div>
 
