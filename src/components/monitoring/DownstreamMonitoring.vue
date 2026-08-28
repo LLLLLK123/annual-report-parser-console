@@ -29,10 +29,18 @@ const downstreamTableConfigs = downstreamTableCatalog.map((key) => ({
   getStatus: (row) => row.downstreamSyncMap?.[key] === true,
 }))
 
-const unifiedAlertRule = {
-  key: 'daily_not_synced',
-  title: '当日未同步',
-  definition: '在选定监测日期范围内，如果某张下游表当天没有任何同步成功记录，则触发该告警。',
+const NO_INCREMENT_STREAK_DAYS = 3
+
+const alertRuleDefinitions = {
+  daily_not_synced: {
+    key: 'daily_not_synced',
+    title: '当日未同步',
+    definition: '在选定监测日期范围内，如果某张下游表当天没有任何同步成功记录，则触发该告警。',
+  },
+  no_increment_streak: {
+    key: 'no_increment_streak',
+    title: '连续N天无增量',
+  },
 }
 
 const todayKey = '2026-08-28'
@@ -109,7 +117,7 @@ const rangeDays = computed(() => {
 })
 
 const monitorLedgerRows = computed(() => {
-  return rangeDays.value.flatMap((day) => {
+  const dailyAlerts = rangeDays.value.flatMap((day) => {
     const rowsOfDay = filteredRows.value.filter((row) => row.syncTime.slice(0, 10) === day)
 
     return downstreamTableConfigs.map((table) => {
@@ -126,14 +134,58 @@ const monitorLedgerRows = computed(() => {
         tableKey: table.key,
         tableLabel: table.label,
         synced,
-        alertKey: unifiedAlertRule.key,
-        alertLabel: unifiedAlertRule.title,
+        alertKey: alertRuleDefinitions.daily_not_synced.key,
+        alertLabel: alertRuleDefinitions.daily_not_synced.title,
         totalRows,
         syncedRows: syncedRows.length,
         latestSyncTime,
       }
     })
   })
+
+  const streakAlerts = []
+
+  downstreamTableConfigs.forEach((table) => {
+    let streakStart = null
+    let streakCount = 0
+
+    rangeDays.value.forEach((day, index) => {
+      const rowsOfDay = filteredRows.value.filter((row) => row.syncTime.slice(0, 10) === day)
+      const syncedRows = rowsOfDay.filter((row) => table.getStatus(row))
+      const hasIncrement = syncedRows.length > 0
+
+      if (!hasIncrement) {
+        if (!streakStart) streakStart = day
+        streakCount += 1
+      } else {
+        streakStart = null
+        streakCount = 0
+      }
+
+      if (streakCount >= NO_INCREMENT_STREAK_DAYS) {
+        const streakEnd = day
+        const currentWindowStart = rangeDays.value[index - NO_INCREMENT_STREAK_DAYS + 1]
+
+        streakAlerts.push({
+          id: `streak-${table.key}-${currentWindowStart}-${streakEnd}`,
+          monitorDate: streakEnd,
+          tableKey: table.key,
+          tableLabel: table.label,
+          synced: false,
+          alertKey: alertRuleDefinitions.no_increment_streak.key,
+          alertLabel: alertRuleDefinitions.no_increment_streak.title,
+          totalRows: rowsOfDay.length,
+          syncedRows: syncedRows.length,
+          latestSyncTime: '-',
+          streakStart: currentWindowStart,
+          streakEnd,
+          streakDays: NO_INCREMENT_STREAK_DAYS,
+        })
+      }
+    })
+  })
+
+  return [...dailyAlerts, ...streakAlerts]
 })
 
 const unresolvedIssueRows = computed(() => {
@@ -148,7 +200,7 @@ const filteredIssueRows = computed(() => {
     return [
       row.tableLabel,
       row.alertLabel,
-      unifiedAlertRule.title,
+      alertRuleDefinitions[row.alertKey]?.title,
       row.monitorDate,
     ]
       .filter(Boolean)
@@ -169,12 +221,17 @@ const selectedAlertDetail = computed(() => {
 
   return {
     ...selectedAlert.value,
-    title: unifiedAlertRule.title,
-    definition: unifiedAlertRule.definition,
+    title: alertRuleDefinitions[selectedAlert.value.alertKey]?.title || selectedAlert.value.alertLabel,
+    definition:
+      selectedAlert.value.alertKey === alertRuleDefinitions.no_increment_streak.key
+        ? `在选定监测日期范围内，如果某张下游表连续 ${selectedAlert.value.streakDays} 天没有任何新增同步成功记录，则触发该告警。`
+        : alertRuleDefinitions[selectedAlert.value.alertKey]?.definition || '该规则定义暂未补充。',
     triggerReason:
-      selectedAlert.value.totalRows === 0
-        ? `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下没有任何记录进入监测口径，因此 ${selectedAlert.value.tableLabel} 没有发生同步，触发告警。`
-        : `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下共检查 ${selectedAlert.value.totalRows} 条记录，但 ${selectedAlert.value.tableLabel} 的同步成功数为 0，因此触发告警。`,
+      selectedAlert.value.alertKey === alertRuleDefinitions.no_increment_streak.key
+        ? `${selectedAlert.value.tableLabel} 在 ${selectedAlert.value.streakStart} 至 ${selectedAlert.value.streakEnd} 连续 ${selectedAlert.value.streakDays} 天没有任何同步成功记录，因此触发“连续${selectedAlert.value.streakDays}天无增量”告警。`
+        : selectedAlert.value.totalRows === 0
+          ? `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下没有任何记录进入监测口径，因此 ${selectedAlert.value.tableLabel} 没有发生同步，触发告警。`
+          : `在 ${selectedAlert.value.monitorDate} 这一天，当前筛选范围下共检查 ${selectedAlert.value.totalRows} 条记录，但 ${selectedAlert.value.tableLabel} 的同步成功数为 0，因此触发告警。`,
   }
 })
 
@@ -221,7 +278,7 @@ watch(totalPages, (value) => {
       <div class="monitor-section-intro">
         <span>下游监测</span>
         <h2>下游监测</h2>
-        <p>这里统一检查下游目标表在所选时间范围内是否发生同步成功，当前包含财务主表与多张附注下游表。</p>
+        <p>这里统一检查下游目标表在所选时间范围内是否发生同步成功，当前支持“当日未同步”与“连续N天无增量”两类规则。</p>
       </div>
 
       <div class="monitor-header-filters">
@@ -251,6 +308,7 @@ watch(totalPages, (value) => {
             <input v-model="endDate" type="date" :max="todayKey" />
           </div>
         </div>
+
       </div>
     </div>
 
@@ -263,7 +321,7 @@ watch(totalPages, (value) => {
         <div>
           <span>DOWNSTREAM DELIVERY</span>
           <h3>{{ currentScopeMeta.label }}</h3>
-          <p>默认监测当天，也支持设置开始与结束日期。当前统一按“当日未同步”规则检查所有纳入监测的下游表。</p>
+          <p>默认监测当天，也支持设置开始与结束日期。当前统一按“当日未同步”和“连续N天无增量”规则检查所有纳入监测的下游表。</p>
         </div>
         <div class="monitor-source-badge">表级监测</div>
       </div>
@@ -319,7 +377,7 @@ watch(totalPages, (value) => {
               @click="selectedAlert = item"
             >
               <td>
-                <strong>{{ item.alertLabel || unifiedAlertRule.title }}</strong>
+                <strong>{{ item.alertLabel || alertRuleDefinitions[item.alertKey]?.title }}</strong>
               </td>
               <td>{{ item.tableLabel }}</td>
               <td>{{ item.monitorDate }}</td>
