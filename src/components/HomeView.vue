@@ -1,4 +1,5 @@
 <script setup>
+import ProductTechnologyIntro from './ProductTechnologyIntro.vue'
 </script>
 
 <template>
@@ -24,5 +25,6 @@
         <!-- <p>面向 OCR、结构化解析、目标字段提取与入库链路的统一入口。</p> -->
       </div>
     </section>
+    <ProductTechnologyIntro />
   </main>
 </template>

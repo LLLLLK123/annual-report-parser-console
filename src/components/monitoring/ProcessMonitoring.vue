@@ -98,7 +98,7 @@ function reparseTask(task) {
   <section class="monitor-shell">
     <template v-if="!selectedTask">
       <div class="monitor-section-intro">
-        <span>流程监测</span>
+        <!-- <span>流程监测</span> -->
         <h2>流程监测</h2>
         <!-- <p>按真实链路查看每份报告当前停留在哪个解析阶段，并进入单任务日志查看完整处理过程。</p> -->
       </div>

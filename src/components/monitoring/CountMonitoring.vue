@@ -12,11 +12,14 @@ const props = defineProps({
 const activeSectionKey = ref(props.countSections[0]?.key || 'public')
 const activeRangeKey = ref(props.rangeOptions[0]?.key || 'today')
 const activeReportType = ref('all')
-const activeCompletedIssueFilter = ref('all')
-const selectedCompletedAlert = ref(null)
-const completedPageSize = ref(10)
-const completedCurrentPage = ref(1)
-const completedJumpPageInput = ref('1')
+const companyKeyword = ref('')
+const crmKeyword = ref('')
+const activeStatus = ref('all')
+const activeReportPeriod = ref('all')
+const taskPageSize = ref(10)
+const taskCurrentPage = ref(1)
+const taskJumpPageInput = ref('1')
+const selectedTaskDetail = ref(null)
 
 const COMPLETED_ROW_THRESHOLDS = {
   an14: 70,
@@ -36,33 +39,6 @@ const statusClassMap = {
   processing: 'info',
   success: 'success',
   failed: 'danger',
-}
-
-const completedIssueDefinitions = {
-  no_an14: {
-    title: '无资产负债表',
-    definition: '已完成报告在结果表中应至少存在一张资产负债表（AN14）；若未进入，则判定流程存在缺表问题。',
-  },
-  no_an15: {
-    title: '无利润表',
-    definition: '已完成报告在结果表中应至少存在一张利润表（AN15）；若未进入，则判定流程存在缺表问题。',
-  },
-  no_an16: {
-    title: '无现金流量表',
-    definition: '已完成报告在结果表中应至少存在一张现金流量表（AN16）；若未进入，则判定流程存在缺表问题。',
-  },
-  low_an14: {
-    title: '资产负债表行数低于阈值',
-    definition: `已完成报告虽然存在资产负债表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an14}，则认为三表抽取疑似不完整。`,
-  },
-  low_an15: {
-    title: '利润表行数低于阈值',
-    definition: `已完成报告虽然存在利润表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an15}，则认为三表抽取疑似不完整。`,
-  },
-  low_an16: {
-    title: '现金流量表行数低于阈值',
-    definition: `已完成报告虽然存在现金流量表，但若行数低于经验阈值 ${COMPLETED_ROW_THRESHOLDS.an16}，则认为三表抽取疑似不完整。`,
-  },
 }
 
 const quarterLabelMap = {
@@ -89,6 +65,8 @@ const addDays = (date, offset) => {
   next.setDate(next.getDate() + offset)
   return next
 }
+
+const todayKey = formatDayKey(new Date())
 
 const activeSection = computed(() => {
   return props.countSections.find((section) => section.key === activeSectionKey.value) || props.countSections[0]
@@ -124,14 +102,36 @@ const reportTypeOptions = computed(() => {
 })
 
 const filteredSectionRows = computed(() => {
-  if (activeReportType.value === 'all') return sectionRows.value
-  return sectionRows.value.filter((row) => row.normalizedReportType === activeReportType.value)
+  return sectionRows.value.filter((row) => {
+    if (activeReportType.value !== 'all' && row.normalizedReportType !== activeReportType.value) return false
+    if (activeStatus.value !== 'all' && row.normalizedStatus !== activeStatus.value) return false
+    if (activeReportPeriod.value !== 'all' && String(row.report_quarter) !== activeReportPeriod.value) return false
+    if (companyKeyword.value.trim() && !row.company_name?.toLowerCase().includes(companyKeyword.value.trim().toLowerCase())) return false
+    if (crmKeyword.value.trim() && !row.crmcode?.toLowerCase().includes(crmKeyword.value.trim().toLowerCase())) return false
+    return true
+  })
 })
 
+const statusOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'success', label: '已完成' },
+  { value: 'processing', label: '处理中' },
+  { value: 'pending', label: '待处理' },
+  { value: 'failed', label: '失败' },
+]
+
+const reportPeriodOptions = [
+  { value: 'all', label: '全部报告期' },
+  { value: '1', label: '一季报' },
+  { value: '2', label: '半年报' },
+  { value: '3', label: '三季报' },
+  { value: '4', label: '年报' },
+]
+
 const dateWindow = computed(() => {
-  const end = parseDate(`${props.referenceDate} 23:59:59`)
+  const end = parseDate(`${todayKey} 23:59:59`)
   const days = activeRange.value?.days || 1
-  const start = parseDate(`${props.referenceDate} 00:00:00`)
+  const start = parseDate(`${todayKey} 00:00:00`)
   start.setDate(start.getDate() - days + 1)
   return { start, end }
 })
@@ -141,26 +141,67 @@ const inWindow = (date) => {
   return date >= dateWindow.value.start && date <= dateWindow.value.end
 }
 
+const monitoredWindowRows = computed(() => filteredSectionRows.value.filter(
+  (row) => inWindow(row.createdAt) || inWindow(row.updatedAt),
+))
+
 const kpiSummary = computed(() => {
-  const rows = filteredSectionRows.value
-  const rangeRows = rows.filter((row) => inWindow(row.createdAt))
-  const total = rows.filter((row) => row.createdAt && row.createdAt <= dateWindow.value.end).length
-  const added = rangeRows.length
-  const completed = rangeRows.filter((row) => row.normalizedStatus === 'success').length
-  const failed = rangeRows.filter((row) => row.normalizedStatus === 'failed').length
-  const pending = rangeRows.filter((row) => row.normalizedStatus === 'pending' || row.normalizedStatus === 'processing').length
+  const rows = monitoredWindowRows.value
+  const total = rows.length
+  const completed = rows.filter((row) => row.normalizedStatus === 'success').length
+  const processing = rows.filter((row) => row.normalizedStatus === 'processing').length
+  const pending = rows.filter((row) => row.normalizedStatus === 'pending').length
+  const failed = rows.filter((row) => row.normalizedStatus === 'failed').length
+
+  const abnormal = rows.filter((row, index) => {
+    if (row.normalizedStatus === 'failed') return true
+    if (row.normalizedStatus !== 'success') return false
+    return buildCompletedAlertItems({ ...row, monitorTables: buildCompletedTableStatus(row, index) }).length > 0
+  }).length
+
+  const rangeLabel = activeRangeKey.value === 'today' ? '当日' : activeRange.value.label
 
   return [
-    { key: 'total', label: '总量', value: total, note: `截至 ${props.referenceDate} 的累计任务数`, tone: '', icon: '▣' },
-    { key: 'added', label: '新增', value: added, note: `${activeRange.value.label}内新增任务`, tone: 'tone-success', icon: '+' },
-    { key: 'completed', label: '已完成', value: completed, note: `${activeRange.value.label}内已完成`, tone: 'tone-success', icon: '✓' },
-    { key: 'pending', label: '待完成', value: pending, note: '包含处理中与待处理任务', tone: 'tone-warning', icon: '◌' },
-    { key: 'failed', label: '失败', value: failed, note: `${activeRange.value.label}内失败任务`, tone: 'tone-danger', icon: '!' },
+    { key: 'total', label: '总量', value: total, note: `${rangeLabel}已处理报告总量`, tone: '', icon: '▣' },
+    { key: 'completed', label: '已完成', value: completed, note: `${rangeLabel}已完成报告数`, tone: 'tone-success', icon: '✓' },
+    { key: 'processing', label: '处理中', value: processing, note: `${rangeLabel}处理中报告数`, tone: 'tone-info', icon: '↻' },
+    { key: 'pending', label: '待处理', value: pending, note: `${rangeLabel}待处理报告数`, tone: 'tone-warning', icon: '◌' },
+    { key: 'failed', label: '失败', value: failed, note: `${rangeLabel}失败报告数`, tone: 'tone-danger', icon: '!' },
+    { key: 'abnormal', label: '异常预警', value: abnormal, note: '识别失败或三表校验异常', tone: 'tone-danger', icon: '⚠' },
   ]
 })
 
+const taskMonitorRows = computed(() => monitoredWindowRows.value.map((row, index) => {
+    const monitorTables = buildCompletedTableStatus(row, index)
+    const alerts = row.normalizedStatus === 'success' ? buildCompletedAlertItems({ ...row, monitorTables }) : []
+    return { ...row, monitorTables, alerts }
+  }))
+
+const taskTotalCount = computed(() => taskMonitorRows.value.length)
+const taskTotalPages = computed(() => Math.max(1, Math.ceil(taskTotalCount.value / taskPageSize.value)))
+const paginatedTaskRows = computed(() => {
+  const start = (taskCurrentPage.value - 1) * taskPageSize.value
+  return taskMonitorRows.value.slice(start, start + taskPageSize.value)
+})
+
+const setTaskPage = (page) => {
+  taskCurrentPage.value = Math.min(Math.max(1, page), taskTotalPages.value)
+  taskJumpPageInput.value = String(taskCurrentPage.value)
+}
+
+const submitTaskJumpPage = () => setTaskPage(Number(taskJumpPageInput.value) || 1)
+
+const resetCountFilters = () => {
+  activeRangeKey.value = props.rangeOptions[0]?.key || 'today'
+  activeReportType.value = 'all'
+  activeReportPeriod.value = 'all'
+  activeStatus.value = 'all'
+  companyKeyword.value = ''
+  crmKeyword.value = ''
+}
+
 const trendPoints = computed(() => {
-  const endDay = parseDate(`${props.referenceDate} 00:00:00`)
+  const endDay = parseDate(`${todayKey} 00:00:00`)
   const days = activeRange.value?.days || 1
 
   return Array.from({ length: days }, (_, index) => {
@@ -202,7 +243,7 @@ const buildLinePath = (field) => {
 }
 
 const distributionItems = computed(() => {
-  const rows = filteredSectionRows.value.filter((row) => inWindow(row.createdAt))
+  const rows = monitoredWindowRows.value
   return [
     { key: 'success', label: '已完成', value: rows.filter((row) => row.normalizedStatus === 'success').length, color: '#4b67d9' },
     { key: 'processing', label: '处理中', value: rows.filter((row) => row.normalizedStatus === 'processing').length, color: '#58a6ff' },
@@ -284,15 +325,6 @@ const buildCompletedTableStatus = (row, index) => {
     { code: 'AN16', label: '现金流量表', entered: true, count: 30, threshold: COMPLETED_ROW_THRESHOLDS.an16, notApplicable: false },
   ]
 }
-
-const completedRows = computed(() => {
-  return filteredSectionRows.value
-    .filter((row) => row.normalizedStatus === 'success' && inWindow(row.updatedAt))
-    .map((row, index) => ({
-      ...row,
-      monitorTables: buildCompletedTableStatus(row, index),
-    }))
-})
 
 const buildCompletedAlertItems = (row) => {
   const tables = Object.fromEntries((row.monitorTables || []).map((item) => [item.code, item]))
@@ -409,18 +441,16 @@ const submitCompletedJumpPage = () => {
 }
 
 watch(
-  [activeSectionKey, activeRangeKey, activeReportType, activeCompletedIssueFilter, completedPageSize],
+  [activeSectionKey, activeRangeKey, activeReportType, activeReportPeriod, activeStatus, companyKeyword, crmKeyword, taskPageSize],
   () => {
-    completedCurrentPage.value = 1
-    completedJumpPageInput.value = '1'
+    taskCurrentPage.value = 1
+    taskJumpPageInput.value = '1'
   },
 )
 
-watch(completedTotalPages, (value) => {
-  if (completedCurrentPage.value > value) {
-    completedCurrentPage.value = value
-  }
-  completedJumpPageInput.value = String(completedCurrentPage.value)
+watch(taskTotalPages, (value) => {
+  if (taskCurrentPage.value > value) taskCurrentPage.value = value
+  taskJumpPageInput.value = String(taskCurrentPage.value)
 })
 
 const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 ${formatDayKey(dateWindow.value.end)}`)
@@ -428,62 +458,37 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
 
 <template>
   <section class="monitor-shell">
-    <div class="monitor-section-header">
-      <div class="monitor-section-intro">
-        <span>数量监测</span>
-        <h2>数量监测</h2>
-        <!-- <p>先按公开 / 非公开两类来源拆开看，再用时间窗口和报告类型组合筛选数量变化。</p> -->
-      </div>
+    <div class="monitor-section-intro"><h2>数量监测</h2></div>
 
-      <div class="monitor-header-filters">
-        <label class="field monitor-select-field">
-          <span>报告范围</span>
-          <select v-model="activeSectionKey">
-            <option v-for="section in countSections" :key="section.key" :value="section.key">
-              {{ section.title }}
-            </option>
-          </select>
-        </label>
-
-        <label class="field monitor-select-field">
-          <span>报告类型</span>
-          <select v-model="activeReportType">
-            <option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-      </div>
+    <div class="workbench-panel monitor-scope-tabs">
+      <button
+        v-for="section in countSections"
+        :key="section.key"
+        :class="['monitor-range-btn', { active: activeSectionKey === section.key }]"
+        type="button"
+        @click="activeSectionKey = section.key"
+      >{{ section.key === 'public' ? '公众报告' : '非公众报告' }}</button>
     </div>
 
+    <article class="workbench-panel count-filter-panel">
+      <div class="count-filter-grid">
+        <label class="field"><span>统计范围</span><select v-model="activeRangeKey"><option v-for="item in rangeOptions" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
+        <label class="field"><span>报告类型</span><select v-model="activeReportType"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        <label class="field"><span>报告期</span><select v-model="activeReportPeriod"><option v-for="item in reportPeriodOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        <label class="field"><span>公司名称</span><input v-model="companyKeyword" placeholder="请输入公司名称" /></label>
+        <label class="field"><span>CRM Code</span><input v-model="crmKeyword" placeholder="请输入CRM Code" /></label>
+        <label class="field"><span>任务状态</span><select v-model="activeStatus"><option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+      </div>
+      <div class="count-filter-actions">
+        <button class="primary-btn compact" type="button">查询</button>
+        <button class="quad-link page-btn" type="button" @click="resetCountFilters">重置</button>
+      </div>
+    </article>
+
     <div class="monitor-count-view">
-      <article v-if="activeSection" class="workbench-panel monitor-source-panel">
-        <div class="monitor-source-head">
-          <div>
-            <span>{{ activeSection.englishLabel }}</span>
-            <h3>{{ activeSection.title }}</h3>
-            <p>{{ activeSection.description }}</p>
-          </div>
-          <div class="monitor-source-badge">{{ activeSection.sourceTag }}</div>
-        </div>
-
-        <div class="monitor-range-switch">
-          <button
-            v-for="item in rangeOptions"
-            :key="item.key"
-            :class="['monitor-range-btn', { active: activeRangeKey === item.key }]"
-            type="button"
-            @click="activeRangeKey = item.key"
-          >
-            {{ item.label }}
-          </button>
-        </div>
-
-        <div class="monitor-window-note">
-          <strong>统计窗口：</strong>{{ windowText }}
-        </div>
-
-        <div class="monitor-kpi-grid">
+      <article v-if="activeSection" class="monitor-source-panel count-summary-panel">
+        <div class="monitor-window-note"><strong>统计窗口：</strong>{{ windowText }}</div>
+        <div class="monitor-kpi-grid count-kpi-grid">
           <article
             v-for="metric in kpiSummary"
             :key="metric.key"
@@ -494,6 +499,39 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
             <strong class="monitor-kpi-value">{{ metric.value }}</strong>
             <p>{{ metric.note }}</p>
           </article>
+        </div>
+      </article>
+
+      <article class="workbench-panel monitor-detail-panel count-task-panel">
+        <div class="monitor-filter-head"><h3>报告数量监测清单</h3></div>
+        <div class="history-table-wrap">
+          <table class="history-table count-task-table">
+            <thead><tr><th>报告名称</th><th>公司名称</th><th>CRM Code</th><th>报告类型</th><th>报告期</th><th>识别状态</th><th>三表是否缺失</th><th>任务是否低于阈值</th><th>新增时间</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="row in paginatedTaskRows" :key="row.id">
+                <td>{{ row.file_name }}</td>
+                <td>{{ row.company_name }}</td>
+                <td>{{ row.crmcode }}</td>
+                <td>{{ reportTypeLabelMap[row.normalizedReportType] || row.normalizedReportType }}</td>
+                <td>{{ row.report_year }}{{ quarterLabelMap[row.report_quarter] || row.report_quarter }}</td>
+                <td><span :class="['status-pill', statusClassMap[row.normalizedStatus]]">{{ statusLabelMap[row.normalizedStatus] }}</span></td>
+                <td><span :class="['status-pill', row.alerts.some((item) => item.key.startsWith('no_')) ? 'danger' : 'success']">{{ row.alerts.some((item) => item.key.startsWith('no_')) ? '缺失' : '正常' }}</span></td>
+                <td><span :class="['status-pill', row.alerts.some((item) => item.key.startsWith('low_')) ? 'danger' : 'success']">{{ row.alerts.some((item) => item.key.startsWith('low_')) ? '异常' : '正常' }}</span></td>
+                <td>{{ row.create_time.slice(0, 16) }}</td>
+                <td><button class="quad-link page-btn count-detail-btn" type="button" @click="selectedTaskDetail = row">查看详情</button></td>
+              </tr>
+              <tr v-if="!paginatedTaskRows.length"><td colspan="10" class="empty-row">当前筛选条件下暂无任务</td></tr>
+            </tbody>
+          </table>
+          <div class="history-pagination">
+            <div class="pagination-summary">共 <strong>{{ taskTotalCount }}</strong> 条，当前第 <strong>{{ taskCurrentPage }}</strong> / <strong>{{ taskTotalPages }}</strong> 页</div>
+            <div class="pagination-controls">
+              <label class="page-size-select"><span>每页</span><select v-model="taskPageSize"><option :value="10">10</option><option :value="20">20</option><option :value="50">50</option></select><span>条</span></label>
+              <button class="quad-link page-btn" type="button" :disabled="taskCurrentPage === 1" @click="setTaskPage(taskCurrentPage - 1)">上一页</button>
+              <button class="quad-link page-btn" type="button" :disabled="taskCurrentPage === taskTotalPages" @click="setTaskPage(taskCurrentPage + 1)">下一页</button>
+              <form class="jump-form" @submit.prevent="submitTaskJumpPage"><span>跳至</span><input v-model="taskJumpPageInput" type="number" min="1" :max="taskTotalPages" /><span>页</span><button class="quad-link page-btn" type="submit">确定</button></form>
+            </div>
+          </div>
         </div>
       </article>
 
@@ -539,7 +577,6 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
           <div>
             <span class="login-kicker">STATUS DISTRIBUTION</span>
             <h3>状态分布</h3>
-            <p class="monitor-placeholder-text">按历史记录一致的四种处理状态展示当前窗口内的数量结构。</p>
           </div>
 
           <div class="monitor-donut" :style="donutStyle">
@@ -562,156 +599,41 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
         </article>
       </div>
 
-      <article class="workbench-panel monitor-detail-panel">
-        <div class="monitor-filter-head">
-          <div>
-            <span class="login-kicker">COMPLETED TASK CHECK</span>
-            <h3>已完成任务监测</h3>
-            <!-- <p class="monitor-placeholder-text">这里只看当前窗口内已经完成的报告，重点检查三表是否齐全，以及三张表的行数是否低于阈值。</p> -->
-          </div>
-        </div>
-
-        <div class="monitor-kpi-grid monitor-completed-kpi-grid">
-          <article
-            v-for="metric in completedIssueCards"
-            :key="metric.key"
-            :class="['workbench-panel monitor-kpi-card', metric.tone, 'monitor-kpi-card-clickable', { active: activeCompletedIssueFilter === metric.key }]"
-            @click="toggleCompletedIssueFilter(metric.key)"
-          >
-            <span class="monitor-kpi-icon">{{ metric.icon }}</span>
-            <span class="monitor-kpi-label">{{ metric.label }}</span>
-            <strong class="monitor-kpi-value">{{ metric.value }}</strong>
-            <p>{{ metric.note }}</p>
-          </article>
-        </div>
-
-        <div class="monitor-filter-head monitor-completed-filter-row">
-          <button
-            v-if="activeCompletedIssueFilter !== 'all'"
-            class="quad-link page-btn"
-            type="button"
-            @click="activeCompletedIssueFilter = 'all'"
-          >
-            清空规则筛选
-          </button>
-        </div>
-
-        <div class="history-table-wrap">
-          <table class="history-table monitor-history-table downstream-history-table">
-            <thead>
-              <tr>
-                <th>主体名称</th>
-                <th>报告类型</th>
-                <th>报告期</th>
-                <th>触发规则</th>
-                <th>完成时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in paginatedCompletedIssues"
-                :key="item.id"
-                class="monitor-alert-row"
-                @click="selectedCompletedAlert = item"
-              >
-                <td class="monitor-name-cell">
-                  <strong>{{ item.row.company_name }}</strong>
-                  <small>{{ item.row.crmcode }}</small>
-                </td>
-                <td>{{ reportTypeLabelMap[item.row.normalizedReportType] || item.row.normalizedReportType }}</td>
-                <td>{{ item.row.report_year }}{{ quarterLabelMap[item.row.report_quarter] || item.row.report_quarter }}</td>
-                <td><span class="status-pill danger">{{ item.label }}</span></td>
-                <td>{{ item.row.update_time.slice(0, 16) }}</td>
-              </tr>
-              <tr v-if="!paginatedCompletedIssues.length">
-                <td colspan="5" class="empty-row">当前筛选条件下暂无疑似问题</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="history-pagination">
-            <div class="pagination-summary">
-              共 <strong>{{ completedTotalCount }}</strong> 条，当前第
-              <strong>{{ completedCurrentPage }}</strong> / <strong>{{ completedTotalPages }}</strong> 页
-            </div>
-
-            <div class="pagination-controls">
-              <label class="page-size-select">
-                <span>每页</span>
-                <select v-model="completedPageSize">
-                  <option :value="10">10</option>
-                  <option :value="20">20</option>
-                  <option :value="50">50</option>
-                </select>
-                <span>条</span>
-              </label>
-
-              <button class="quad-link page-btn" type="button" :disabled="completedCurrentPage === 1" @click="goPrevCompletedPage">上一页</button>
-
-              <button class="quad-link page-btn" type="button" :disabled="completedCurrentPage === completedTotalPages" @click="goNextCompletedPage">下一页</button>
-
-              <form class="jump-form" @submit.prevent="submitCompletedJumpPage">
-                <span>跳至</span>
-                <input v-model="completedJumpPageInput" type="number" min="1" :max="completedTotalPages" />
-                <span>页</span>
-                <button class="quad-link page-btn" type="submit">确定</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </article>
     </div>
 
-    <div v-if="selectedCompletedAlertDetail" class="monitor-drawer-mask" @click.self="selectedCompletedAlert = null">
-      <aside class="monitor-detail-drawer">
+    <div v-if="selectedTaskDetail" class="monitor-drawer-mask" @click.self="selectedTaskDetail = null">
+      <aside class="monitor-detail-drawer count-task-detail-drawer">
         <div class="monitor-drawer-head">
-          <div>
-            <span>ALERT DETAIL</span>
-            <h3>{{ selectedCompletedAlertDetail.title }}</h3>
-          </div>
-          <button class="monitor-drawer-close" @click="selectedCompletedAlert = null">×</button>
+          <h3>任务监测详情</h3>
+          <button class="monitor-drawer-close" type="button" @click="selectedTaskDetail = null">×</button>
         </div>
 
-        <div class="monitor-drawer-grid">
-          <article class="monitor-drawer-item">
-            <span>主体名称</span>
-            <strong>{{ selectedCompletedAlertDetail.row.company_name }}</strong>
-          </article>
-          <article class="monitor-drawer-item">
-            <span>报告类型</span>
-            <strong>{{ reportTypeLabelMap[selectedCompletedAlertDetail.row.normalizedReportType] || selectedCompletedAlertDetail.row.normalizedReportType }}</strong>
-          </article>
-          <article class="monitor-drawer-item">
-            <span>报告期</span>
-            <strong>{{ selectedCompletedAlertDetail.row.report_year }}{{ quarterLabelMap[selectedCompletedAlertDetail.row.report_quarter] || selectedCompletedAlertDetail.row.report_quarter }}</strong>
-          </article>
-          <article class="monitor-drawer-item">
-            <span>完成时间</span>
-            <strong>{{ selectedCompletedAlertDetail.row.update_time.slice(0, 16) }}</strong>
-          </article>
+        <div class="monitor-drawer-grid count-task-base-grid">
+          <article class="monitor-drawer-item"><span>报告名称</span><strong>{{ selectedTaskDetail.file_name }}</strong></article>
+          <article class="monitor-drawer-item"><span>主体名称</span><strong>{{ selectedTaskDetail.company_name }}</strong></article>
+          <article class="monitor-drawer-item"><span>CRM Code</span><strong>{{ selectedTaskDetail.crmcode }}</strong></article>
+          <article class="monitor-drawer-item"><span>报告类型</span><strong>{{ reportTypeLabelMap[selectedTaskDetail.normalizedReportType] || selectedTaskDetail.normalizedReportType }}</strong></article>
+          <article class="monitor-drawer-item"><span>报告期</span><strong>{{ selectedTaskDetail.report_year }}{{ quarterLabelMap[selectedTaskDetail.report_quarter] || selectedTaskDetail.report_quarter }}</strong></article>
+          <article class="monitor-drawer-item"><span>识别状态</span><strong>{{ statusLabelMap[selectedTaskDetail.normalizedStatus] }}</strong></article>
+          <article class="monitor-drawer-item"><span>新增时间</span><strong>{{ selectedTaskDetail.create_time.slice(0, 16) }}</strong></article>
+          <article class="monitor-drawer-item"><span>更新时间</span><strong>{{ selectedTaskDetail.update_time.slice(0, 16) }}</strong></article>
         </div>
 
-        <article class="monitor-pageindex-card">
-          <strong>规则定义</strong>
-          <p class="monitor-placeholder-text">{{ selectedCompletedAlertDetail.definition }}</p>
-        </article>
-
-        <article class="monitor-pageindex-card">
-          <strong>本次为什么触发</strong>
-          <p class="monitor-placeholder-text">{{ selectedCompletedAlertDetail.triggerReason }}</p>
-        </article>
-
-        <article class="monitor-pageindex-card">
-          <strong>当前三表快照</strong>
-          <p class="monitor-placeholder-text">
-            {{
-              selectedCompletedAlertDetail.row.monitorTables
-                .filter((item) => !item.notApplicable)
-                .map((item) => `${item.code}: ${item.entered ? `已入表，行数 ${item.count}` : '未入表'}`)
-                .join(' / ')
-            }}
-          </p>
-        </article>
+        <div class="count-three-table-grid">
+          <article
+            v-for="table in selectedTaskDetail.monitorTables"
+            :key="table.code"
+            :class="['count-three-table-card', { danger: !table.notApplicable && (!table.entered || table.count < table.threshold) }]"
+          >
+            <div class="count-three-table-head"><span>{{ table.code }}</span><strong>{{ table.label }}</strong></div>
+            <dl>
+              <div><dt>是否入表</dt><dd>{{ table.notApplicable ? '不适用' : table.entered ? '已入表' : '缺失' }}</dd></div>
+              <div><dt>当前行数</dt><dd>{{ table.entered ? table.count : '-' }}</dd></div>
+              <div><dt>最低阈值</dt><dd>{{ table.notApplicable ? '-' : table.threshold }}</dd></div>
+              <div><dt>检查结果</dt><dd>{{ table.notApplicable ? '不适用' : !table.entered ? `缺少${table.label}` : table.count < table.threshold ? `低于阈值 ${table.threshold - table.count} 行` : '正常' }}</dd></div>
+            </dl>
+          </article>
+        </div>
       </aside>
     </div>
   </section>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import AppTopbar from './components/AppTopbar.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import ConfigWorkspace from './components/ConfigWorkspace.vue'
@@ -12,12 +12,13 @@ import ModulePlaceholder from './components/ModulePlaceholder.vue'
 import RecordDetailModal from './components/RecordDetailModal.vue'
 import UploadModal from './components/UploadModal.vue'
 import UploadWorkbench from './components/UploadWorkbench.vue'
+import UserManagement from './components/UserManagement.vue'
 import {
-  demoAccounts,
   entries,
   navItems,
   roles,
 } from './data/appShell'
+import { roleOptions, userAccountsSeed } from './data/userSeeds'
 import {
   allStatusLabelMap,
   normalizeReportTypeKey,
@@ -37,13 +38,16 @@ const showPasswordPanel = ref(false)
 const showUploadModal = ref(false)
 const showRecordModal = ref(false)
 const showDeleteConfirm = ref(false)
+const showUserDeleteConfirm = ref(false)
 const loginError = ref('')
 const loginSuccess = ref('')
 const forgotHint = ref(false)
 const pendingView = ref('')
 const selectedUploadType = ref('')
 const selectedRecord = ref(null)
+const detailReturnView = ref('library')
 const deletingRecord = ref(null)
+const deletingUser = ref(null)
 const historySearch = ref('')
 const reportTypeFilter = ref([])
 const reportYearFilter = ref([])
@@ -91,13 +95,27 @@ const uploadForm = reactive({
 const targetTableConfigMap = reactive(JSON.parse(JSON.stringify(targetTableConfigSeed)))
 const targetFieldConfigMap = reactive(JSON.parse(JSON.stringify(targetFieldConfigSeed)))
 const uploadRecords = reactive(JSON.parse(JSON.stringify(uploadRecordsSeed)))
+const userStorageKey = 'idoc-user-accounts'
+
+function loadUserAccounts() {
+  try {
+    const stored = window.localStorage.getItem(userStorageKey)
+    const parsed = stored ? JSON.parse(stored) : null
+    return Array.isArray(parsed) && parsed.length ? parsed : userAccountsSeed
+  } catch {
+    return userAccountsSeed
+  }
+}
+
+const userAccounts = reactive(JSON.parse(JSON.stringify(loadUserAccounts())))
 
 const viewRoleMap = {
-  home: [roles.customer, roles.internal, roles.admin],
+  home: [roles.internal, roles.admin],
   upload: [roles.customer, roles.internal, roles.admin],
-  library: [roles.customer, roles.internal, roles.admin],
+  library: [roles.internal, roles.admin],
   monitor: [roles.internal, roles.admin],
   config: [roles.admin],
+  users: [roles.admin],
 }
 
 const getUploadRecordTypeKey = (item) => normalizeReportTypeKey(item.typeKey || item.reportType || item.type)
@@ -173,7 +191,7 @@ const visibleNavItems = computed(() => {
     return navItems.filter(item => item.href === '#home')
   }
 
-  return navItems.filter(item => item.allowedRoles.includes(currentRole.value))
+  return navItems.filter(item => hasAccessToView(item.href.slice(1)))
 })
 
 const visibleEntries = computed(() => {
@@ -181,7 +199,7 @@ const visibleEntries = computed(() => {
     return []
   }
 
-  return entries.filter(item => item.allowedRoles.includes(currentRole.value))
+  return entries.filter(item => hasAccessToView(item.sectionId))
 })
 
 const paginatedUploadRecords = computed(() => {
@@ -257,11 +275,22 @@ const paginatedTargetFieldConfigs = computed(() => {
   return filteredTargetFieldConfigs.value.slice(start, start + fieldConfigPageSize.value)
 })
 
-function hasAccessToView(view, role = currentRole.value) {
+function hasAccessToView(view, user = currentUser.value) {
   const allowedRoles = viewRoleMap[view]
   if (!allowedRoles) return false
-  if (view === 'home') return true
-  return !!role && allowedRoles.includes(role)
+  if (view === 'home' && !isAuthenticated.value) return true
+  if (!user) return false
+  if (view === 'home') return user.role !== roles.customer
+  if (view === 'users') return user.role === roles.admin && user.permissions?.includes('users')
+  return Array.isArray(user.permissions)
+    ? user.permissions.includes(view)
+    : allowedRoles.includes(user.role)
+}
+
+function defaultViewForUser(user = currentUser.value) {
+  if (!user) return 'home'
+  if (user.role === roles.customer) return 'upload'
+  return hasAccessToView('home', user) ? 'home' : (user.permissions?.[0] || 'upload')
 }
 
 function handleWindowScroll() {
@@ -509,10 +538,15 @@ function submitLogin() {
     return
   }
 
-  const matchedAccount = demoAccounts.find(account => account.username === loginForm.username.trim())
+  const matchedAccount = userAccounts.find(account => account.username === loginForm.username.trim())
 
   if (!matchedAccount || loginForm.password !== matchedAccount.password) {
     loginError.value = '用户名或密码不正确，请重新输入。'
+    return
+  }
+
+  if (matchedAccount.status !== 'active') {
+    loginError.value = '当前账号已停用，请联系管理员。'
     return
   }
 
@@ -522,8 +556,10 @@ function submitLogin() {
   showLogin.value = false
   showAccountMenu.value = false
   if (pendingView.value) {
-    activeView.value = hasAccessToView(pendingView.value, matchedAccount.role) ? pendingView.value : 'home'
+    activeView.value = hasAccessToView(pendingView.value, matchedAccount) ? pendingView.value : defaultViewForUser(matchedAccount)
     pendingView.value = ''
+  } else {
+    activeView.value = defaultViewForUser(matchedAccount)
   }
 }
 
@@ -553,7 +589,7 @@ function navigateTo(view) {
   }
 
   if (!hasAccessToView(view)) {
-    activeView.value = 'home'
+    activeView.value = defaultViewForUser()
     showAccountMenu.value = true
     showPasswordPanel.value = false
     passwordMessage.value = `当前账号为${currentUser.value?.roleLabel}，暂未开放该模块权限。`
@@ -623,11 +659,25 @@ function downloadReport(row) {
 function viewRecordData(row) {
   if (row.statusKey !== 'success') return
   selectedRecord.value = row
-  showRecordModal.value = true
+  detailReturnView.value = 'upload'
+  activeView.value = 'report-detail'
 }
 
 function closeRecordModal() {
   showRecordModal.value = false
+  selectedRecord.value = null
+}
+
+function viewLibraryReport(row) {
+  if (row.parseStatus !== '已完成') return
+  selectedRecord.value = row
+  detailReturnView.value = 'library'
+  activeView.value = 'report-detail'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function leaveReportDetail() {
+  activeView.value = detailReturnView.value
   selectedRecord.value = null
 }
 
@@ -740,7 +790,40 @@ function submitPasswordChange() {
     passwordMessage.value = '两次输入的新密码不一致。'
     return
   }
-  passwordMessage.value = '演示环境中暂不真正修改密码，流程校验已通过。'
+  currentUser.value.password = passwordForm.nextPassword
+  currentUser.value.updatedAt = new Date().toLocaleString('sv-SE').replace('T', ' ')
+  passwordMessage.value = '密码修改成功。'
+  passwordForm.currentPassword = ''
+  passwordForm.nextPassword = ''
+  passwordForm.confirmPassword = ''
+}
+
+function saveUser(payload) {
+  const roleLabel = roleOptions.find(item => item.key === payload.role)?.label || payload.role
+  const updatedAt = new Date().toLocaleString('sv-SE').replace('T', ' ')
+  const index = userAccounts.findIndex(user => user.id === payload.id)
+  if (index === -1) {
+    userAccounts.unshift({ ...payload, id: Math.max(0, ...userAccounts.map(user => user.id)) + 1, roleLabel, updatedAt })
+    return
+  }
+  Object.assign(userAccounts[index], payload, { roleLabel, updatedAt })
+}
+
+function requestDeleteUser(user) {
+  if (user.id === currentUser.value?.id) return
+  deletingUser.value = user
+  showUserDeleteConfirm.value = true
+}
+
+function cancelDeleteUser() {
+  deletingUser.value = null
+  showUserDeleteConfirm.value = false
+}
+
+function confirmDeleteUser() {
+  const index = userAccounts.findIndex(user => user.id === deletingUser.value?.id)
+  if (index !== -1) userAccounts.splice(index, 1)
+  cancelDeleteUser()
 }
 
 function logout() {
@@ -763,6 +846,10 @@ onMounted(() => {
   handleWindowScroll()
   window.addEventListener('scroll', handleWindowScroll, { passive: true })
 })
+
+watch(userAccounts, (accounts) => {
+  window.localStorage.setItem(userStorageKey, JSON.stringify(accounts))
+}, { deep: true })
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleWindowScroll)
@@ -788,6 +875,12 @@ onBeforeUnmount(() => {
     />
 
     <HomeView v-if="activeView === 'home'" :entries="visibleEntries" @navigate="navigateTo" />
+
+    <RecordDetailModal
+      v-else-if="activeView === 'report-detail'"
+      :record="selectedRecord"
+      @back="leaveReportDetail"
+    />
 
     <UploadWorkbench
       v-else-if="activeView === 'upload'"
@@ -836,6 +929,7 @@ onBeforeUnmount(() => {
     <LibraryWorkspace
       v-else-if="activeView === 'library'"
       :current-user="currentUser"
+      @view-report="viewLibraryReport"
     />
 
     <ConfigWorkspace
@@ -895,6 +989,14 @@ onBeforeUnmount(() => {
 
     <MonitoringWorkspace v-else-if="activeView === 'monitor'" />
 
+    <UserManagement
+      v-else-if="activeView === 'users'"
+      :users="userAccounts"
+      :current-user="currentUser"
+      @save-user="saveUser"
+      @delete-user="requestDeleteUser"
+    />
+
     <ModulePlaceholder
       v-else
       :title="entries.find(entry => entry.sectionId === activeView)?.title"
@@ -903,7 +1005,7 @@ onBeforeUnmount(() => {
 
     <LoginModal
       :show="showLogin"
-      :demo-accounts="demoAccounts"
+      :demo-accounts="userAccounts.filter(account => account.status === 'active')"
       :login-form="loginForm"
       :login-error="loginError"
       :login-success="loginSuccess"
@@ -922,7 +1024,6 @@ onBeforeUnmount(() => {
       @submit="closeUploadModal"
     />
 
-    <RecordDetailModal :show="showRecordModal" :record="selectedRecord" @close="closeRecordModal" />
 
     <ConfirmDialog
       :show="showDeleteConfirm && !!deletingRecord"
@@ -931,6 +1032,15 @@ onBeforeUnmount(() => {
       :highlight="deletingRecord?.company ? `${deletingRecord.company} 的历史记录，当前演示数据不会自动恢复。` : ''"
       @close="cancelDeleteRecord"
       @confirm="confirmDeleteRecord"
+    />
+
+    <ConfirmDialog
+      :show="showUserDeleteConfirm && !!deletingUser"
+      title="确认删除该用户？"
+      content="删除后该账号将无法继续登录："
+      :highlight="deletingUser?.username || ''"
+      @close="cancelDeleteUser"
+      @confirm="confirmDeleteUser"
     />
 
     <ConfigDrawer

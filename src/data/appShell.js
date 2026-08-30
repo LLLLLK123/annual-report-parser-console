@@ -29,11 +29,12 @@ export const demoAccounts = [
 ]
 
 export const navItems = [
-  { label: '首页', href: '#home', allowedRoles: [roles.customer, roles.internal, roles.admin] },
+  { label: '首页', href: '#home', allowedRoles: [roles.internal, roles.admin] },
   { label: '上传工作台', href: '#upload', allowedRoles: [roles.customer, roles.internal, roles.admin] },
-  { label: '报告库', href: '#library', allowedRoles: [roles.customer, roles.internal, roles.admin] },
+  { label: '报告库', href: '#library', allowedRoles: [roles.internal, roles.admin] },
   { label: '运营监测', href: '#monitor', allowedRoles: [roles.internal, roles.admin] },
   { label: '解析配置', href: '#config', allowedRoles: [roles.admin] },
+  { label: '用户管理', href: '#users', allowedRoles: [roles.admin] },
 ]
 
 export const entries = [
@@ -59,7 +60,7 @@ export const entries = [
       '沉淀报告资产，串联报告清单、解析状态、原始表格、目标表格与原始报告定位，形成可追溯的报告资产中心。',
     points: ['公众报告与非公众报告', '搜索与清单', '解析结果回溯'],
     visualLabel: 'REPORT GRAPH',
-    allowedRoles: [roles.customer, roles.internal, roles.admin],
+    allowedRoles: [roles.internal, roles.admin],
   },
   {
     key: 'monitor',
@@ -83,6 +84,17 @@ export const entries = [
       '面向不同报告类型维护目标表配置与目标字段配置，为 OCR 解析与结构化提取提供稳定规则基础。',
     points: ['目标表配置', '目标字段配置', '多报告类型扩展'],
     visualLabel: 'RULE ENGINE',
+    allowedRoles: [roles.admin],
+  },
+  {
+    key: 'users',
+    sectionId: 'users',
+    badge: '05',
+    title: '用户管理',
+    short: '账户、角色与模块权限管理',
+    description: '统一维护平台账户、角色、启停状态和可访问模块。',
+    points: ['用户新增与编辑', '角色与权限配置', '账户启停与删除'],
+    visualLabel: 'ACCESS CONTROL',
     allowedRoles: [roles.admin],
   },
 ]
