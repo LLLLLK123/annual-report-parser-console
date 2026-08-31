@@ -4,7 +4,6 @@ import AppTopbar from './components/AppTopbar.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import ConfigWorkspace from './components/ConfigWorkspace.vue'
 import ConfigDrawer from './components/ConfigDrawer.vue'
-import HomeView from './components/HomeView.vue'
 import LibraryWorkspace from './components/LibraryWorkspace.vue'
 import LoginModal from './components/LoginModal.vue'
 import MonitoringWorkspace from './components/monitoring/MonitoringWorkspace.vue'
@@ -29,10 +28,10 @@ import {
 } from './data/uploadSeeds'
 import { configReportTypes, targetFieldConfigSeed, targetTableConfigSeed } from './data/configSeeds'
 
-const activeView = ref('home')
+const activeView = ref('upload')
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
-const showLogin = ref(false)
+const showLogin = ref(true)
 const showAccountMenu = ref(false)
 const showPasswordPanel = ref(false)
 const showUploadModal = ref(false)
@@ -110,7 +109,6 @@ function loadUserAccounts() {
 const userAccounts = reactive(JSON.parse(JSON.stringify(loadUserAccounts())))
 
 const viewRoleMap = {
-  home: [roles.internal, roles.admin],
   upload: [roles.customer, roles.internal, roles.admin],
   library: [roles.internal, roles.admin],
   monitor: [roles.internal, roles.admin],
@@ -188,18 +186,10 @@ const currentRole = computed(() => currentUser.value?.role || null)
 
 const visibleNavItems = computed(() => {
   if (!isAuthenticated.value || !currentRole.value) {
-    return navItems.filter(item => item.href === '#home')
-  }
-
-  return navItems.filter(item => hasAccessToView(item.href.slice(1)))
-})
-
-const visibleEntries = computed(() => {
-  if (!isAuthenticated.value || !currentRole.value) {
     return []
   }
 
-  return entries.filter(item => hasAccessToView(item.sectionId))
+  return navItems.filter(item => hasAccessToView(item.href.slice(1)))
 })
 
 const paginatedUploadRecords = computed(() => {
@@ -278,9 +268,7 @@ const paginatedTargetFieldConfigs = computed(() => {
 function hasAccessToView(view, user = currentUser.value) {
   const allowedRoles = viewRoleMap[view]
   if (!allowedRoles) return false
-  if (view === 'home' && !isAuthenticated.value) return true
   if (!user) return false
-  if (view === 'home') return user.role !== roles.customer
   if (view === 'users') return user.role === roles.admin && user.permissions?.includes('users')
   return Array.isArray(user.permissions)
     ? user.permissions.includes(view)
@@ -288,9 +276,8 @@ function hasAccessToView(view, user = currentUser.value) {
 }
 
 function defaultViewForUser(user = currentUser.value) {
-  if (!user) return 'home'
-  if (user.role === roles.customer) return 'upload'
-  return hasAccessToView('home', user) ? 'home' : (user.permissions?.[0] || 'upload')
+  if (!user) return 'upload'
+  return hasAccessToView('upload', user) ? 'upload' : (user.permissions?.[0] || 'upload')
 }
 
 function handleWindowScroll() {
@@ -570,15 +557,14 @@ function handleForgotPassword() {
 }
 
 function goHome() {
-  activeView.value = 'home'
+  activeView.value = defaultViewForUser()
   showAccountMenu.value = false
   showPasswordPanel.value = false
 }
 
 function navigateTo(view) {
   if (view === 'home') {
-    goHome()
-    return
+    view = 'upload'
   }
 
   if (!isAuthenticated.value) {
@@ -839,7 +825,8 @@ function logout() {
   passwordForm.confirmPassword = ''
   passwordMessage.value = ''
   pendingView.value = ''
-  goHome()
+  activeView.value = 'upload'
+  showLogin.value = true
 }
 
 onMounted(() => {
@@ -874,16 +861,14 @@ onBeforeUnmount(() => {
       @logout="logout"
     />
 
-    <HomeView v-if="activeView === 'home'" :entries="visibleEntries" @navigate="navigateTo" />
-
     <RecordDetailModal
-      v-else-if="activeView === 'report-detail'"
+      v-if="isAuthenticated && activeView === 'report-detail'"
       :record="selectedRecord"
       @back="leaveReportDetail"
     />
 
     <UploadWorkbench
-      v-else-if="activeView === 'upload'"
+      v-else-if="isAuthenticated && activeView === 'upload'"
       :upload-types="uploadTypes"
       :paginated-upload-records="paginatedUploadRecords"
       :report-type-options="visibleReportTypeOptions"
@@ -927,13 +912,13 @@ onBeforeUnmount(() => {
     />
 
     <LibraryWorkspace
-      v-else-if="activeView === 'library'"
+      v-else-if="isAuthenticated && activeView === 'library'"
       :current-user="currentUser"
       @view-report="viewLibraryReport"
     />
 
     <ConfigWorkspace
-      v-else-if="activeView === 'config'"
+      v-else-if="isAuthenticated && activeView === 'config'"
       :config-report-types="configReportTypes"
       :active-config-report="activeConfigReport"
       :active-config-section="activeConfigSection"
@@ -987,10 +972,10 @@ onBeforeUnmount(() => {
       @submit-field-config-jump-page="submitFieldConfigJumpPage"
     />
 
-    <MonitoringWorkspace v-else-if="activeView === 'monitor'" />
+    <MonitoringWorkspace v-else-if="isAuthenticated && activeView === 'monitor'" />
 
     <UserManagement
-      v-else-if="activeView === 'users'"
+      v-else-if="isAuthenticated && activeView === 'users'"
       :users="userAccounts"
       :current-user="currentUser"
       @save-user="saveUser"
@@ -998,7 +983,7 @@ onBeforeUnmount(() => {
     />
 
     <ModulePlaceholder
-      v-else
+      v-else-if="isAuthenticated"
       :title="entries.find(entry => entry.sectionId === activeView)?.title"
       @go-home="goHome"
     />

@@ -1,4 +1,6 @@
 <script setup>
+import brandLogo from '../img/logo.png'
+
 defineProps({
   show: { type: Boolean, required: true },
   demoAccounts: { type: Array, required: true },
@@ -13,20 +15,29 @@ const emit = defineEmits(['close', 'forgot-password', 'submit-login'])
 </script>
 
 <template>
-  <div v-if="show" class="modal-mask" @click.self="emit('close')">
+  <div v-if="show" class="modal-mask login-screen" @click.self="emit('close')">
+    <div class="login-flow-bg" aria-hidden="true">
+      <span class="login-ring login-ring-a"></span>
+      <span class="login-ring login-ring-b"></span>
+      <span class="login-ring login-ring-c"></span>
+      <span class="login-flow-line login-line-a"></span>
+      <span class="login-flow-line login-line-b"></span>
+      <span class="login-flow-line login-line-c"></span>
+      <span class="login-flow-node login-node-a"></span>
+      <span class="login-flow-node login-node-b"></span>
+      <span class="login-flow-node login-node-c"></span>
+      <span class="login-flow-node login-node-d"></span>
+    </div>
+
     <div class="login-modal">
       <button class="modal-close" type="button" @click="emit('close')">×</button>
-      <div class="login-avatar">◌</div>
+      <div class="login-brand-stack">
+        <img :src="brandLogo" alt="iDoc logo" />
+        <strong>财务文档智能解析平台</strong>
+        <span>iDoc</span>
+      </div>
       <h2>欢迎回来</h2>
       <p class="login-subtitle">登录报告解析中台账户</p>
-
-      <div class="demo-account-list">
-        <article v-for="account in demoAccounts" :key="account.username" class="demo-account">
-          <strong>{{ account.roleLabel }}</strong>
-          <span>账号：{{ account.username }}</span>
-          <span>密码：{{ account.password }}</span>
-        </article>
-      </div>
 
       <label class="field">
         <span>账号</span>

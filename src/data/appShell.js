@@ -29,7 +29,6 @@ export const demoAccounts = [
 ]
 
 export const navItems = [
-  { label: '首页', href: '#home', allowedRoles: [roles.internal, roles.admin] },
   { label: '上传工作台', href: '#upload', allowedRoles: [roles.customer, roles.internal, roles.admin] },
   { label: '报告库', href: '#library', allowedRoles: [roles.internal, roles.admin] },
   { label: '运营监测', href: '#monitor', allowedRoles: [roles.internal, roles.admin] },

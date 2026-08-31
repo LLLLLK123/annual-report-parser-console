@@ -150,7 +150,14 @@ const resetStatusFilter = (event) => {
           <article v-for="item in uploadTypes" :key="item.key" class="upload-type-card">
             <strong>{{ item.title }}</strong>
             <p>{{ item.desc }}</p>
-            <button class="quad-enter" type="button" @click="emit('open-upload-modal', item.title)">上传文件</button>
+            <button
+              :class="['quad-enter', { 'upload-entry-disabled': item.key !== 'financial' }]"
+              type="button"
+              :disabled="item.key !== 'financial'"
+              @click="item.key === 'financial' && emit('open-upload-modal', item.title)"
+            >
+              上传文件
+            </button>
           </article>
         </div>
       </section>
