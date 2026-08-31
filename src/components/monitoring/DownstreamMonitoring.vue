@@ -1,41 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   downstreamRows: { type: Array, required: true },
   referenceDate: { type: String, required: true },
 })
-
-const systemFilter = ref('all')
-const reportTypeFilter = ref('all')
-const scopeFilter = ref('all')
-const interactionFilter = ref('all')
-
-const systemOptions = [
-  { value: 'all', label: '全部下游' },
-  { value: 'evaluation', label: '财报智评' },
-  { value: 'warehouse', label: '财报数仓' },
-]
-
-const reportTypeOptions = [
-  { value: 'all', label: '全部类型' },
-  { value: 'financial', label: '财务报告' },
-  { value: 'audit', label: '审计报告' },
-  { value: 'prospectus', label: '招股说明书' },
-  { value: 'hk', label: '港股财报' },
-]
-
-const scopeOptions = [
-  { value: 'all', label: '全部属性' },
-  { value: 'public', label: '公开' },
-  { value: 'private', label: '非公开' },
-]
-
-const interactionOptions = [
-  { value: 'all', label: '全部状态' },
-  { value: 'normal', label: '正常' },
-  { value: 'abnormal', label: '异常' },
-]
 
 const systemDefinitions = [
   {
@@ -72,49 +41,12 @@ const formatToday = () => {
 
 const todayKey = formatToday()
 
-const normalizeReportType = (row) => {
-  const key = String(row.reportTypeKey || '').toLowerCase()
-  const label = String(row.reportTypeLabel || '')
-  if (key.includes('audit') || label.includes('审计')) return 'audit'
-  if (key.includes('prospect') || label.includes('招股')) return 'prospectus'
-  if (key.includes('hk') || label.includes('港股')) return 'hk'
-  return 'financial'
-}
-
-const reportTypeRatio = computed(() => {
-  if (reportTypeFilter.value === 'all') return 1
-  if (!props.downstreamRows.length) return 0
-  const matched = props.downstreamRows.filter((row) => normalizeReportType(row) === reportTypeFilter.value)
-  return matched.length / props.downstreamRows.length
-})
-
 const systemSummaries = computed(() => {
-  return systemDefinitions
-    .filter((system) => {
-      return (
-        (systemFilter.value === 'all' || system.key === systemFilter.value) &&
-        (interactionFilter.value === 'all' || system.interaction === interactionFilter.value)
-      )
-    })
-    .map((system) => {
-      const publicFactor = scopeFilter.value === 'private' ? 0 : 1
-      const privateFactor = scopeFilter.value === 'public' ? 0 : 1
-      const publicSynced = Math.round(system.publicSynced * reportTypeRatio.value * publicFactor)
-      const privateSynced = Math.round(system.privateSynced * reportTypeRatio.value * privateFactor)
-      const synced = publicSynced + privateSynced
-      const scopeRatio = system.synced ? synced / system.synced : 0
-      const expected = Math.max(synced, Math.round(system.expected * reportTypeRatio.value * scopeRatio))
-
-      return {
-        ...system,
-        expected,
-        synced,
-        unsynced: Math.max(0, expected - synced),
-        publicSynced,
-        privateSynced,
-        syncStatus: expected === synced ? 'normal' : 'abnormal',
-      }
-    })
+  return systemDefinitions.map((system) => ({
+    ...system,
+    unsynced: Math.max(0, system.expected - system.synced),
+    syncStatus: system.expected === system.synced ? 'normal' : 'abnormal',
+  }))
 })
 
 const metrics = computed(() => {
@@ -132,12 +64,6 @@ const kpiCards = computed(() => [
   { label: '当日未同步', value: metrics.value.syncAbnormal, icon: '!', tone: 'warning' },
 ])
 
-const resetFilters = () => {
-  systemFilter.value = 'all'
-  reportTypeFilter.value = 'all'
-  scopeFilter.value = 'all'
-  interactionFilter.value = 'all'
-}
 </script>
 
 <template>
@@ -148,39 +74,6 @@ const resetFilters = () => {
       </div>
       <div class="downstream-update-time">数据最后更新时间：{{ todayKey }} 18:30:00</div>
     </div>
-
-    <article class="workbench-panel downstream-filter-panel">
-      <div class="downstream-filter-grid">
-        <label class="field monitor-select-field">
-          <span>下游系统</span>
-          <select v-model="systemFilter">
-            <option v-for="item in systemOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label class="field monitor-select-field">
-          <span>报告类型</span>
-          <select v-model="reportTypeFilter">
-            <option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label class="field monitor-select-field">
-          <span>公开属性</span>
-          <select v-model="scopeFilter">
-            <option v-for="item in scopeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label class="field monitor-select-field">
-          <span>交互状态</span>
-          <select v-model="interactionFilter">
-            <option v-for="item in interactionOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <div class="downstream-filter-actions">
-          <button class="quad-enter" type="button">查询</button>
-          <button class="quad-link" type="button" @click="resetFilters">重置</button>
-        </div>
-      </div>
-    </article>
 
     <div class="downstream-kpi-grid">
       <article v-for="card in kpiCards" :key="card.label" class="workbench-panel downstream-kpi-card" :class="`tone-${card.tone}`">

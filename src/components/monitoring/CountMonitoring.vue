@@ -474,10 +474,13 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
       <div class="count-filter-grid">
         <label class="field"><span>统计范围</span><select v-model="activeRangeKey"><option v-for="item in rangeOptions" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
         <label class="field"><span>报告类型</span><select v-model="activeReportType"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        <!-- 暂时隐藏报告期、公司名称、CRM Code 和任务状态筛选，保留对应逻辑供后续调整。 -->
+        <!--
         <label class="field"><span>报告期</span><select v-model="activeReportPeriod"><option v-for="item in reportPeriodOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
         <label class="field"><span>公司名称</span><input v-model="companyKeyword" placeholder="请输入公司名称" /></label>
         <label class="field"><span>CRM Code</span><input v-model="crmKeyword" placeholder="请输入CRM Code" /></label>
         <label class="field"><span>任务状态</span><select v-model="activeStatus"><option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        -->
       </div>
       <div class="count-filter-actions">
         <button class="primary-btn compact" type="button">查询</button>
