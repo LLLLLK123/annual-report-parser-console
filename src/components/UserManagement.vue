@@ -96,13 +96,13 @@ function togglePermission(key) {
 
 function submitEditor() {
   if (!draft.username.trim() || !draft.displayName.trim() || !draft.password) {
-    formError.value = '请完整填写用户名、显示名称和密码。'
+    formError.value = '请完整填写账号、用户名和密码。'
     return
   }
   const duplicated = props.users.some(user =>
     user.username === draft.username.trim() && user.id !== draft.id)
   if (duplicated) {
-    formError.value = '用户名已存在，请更换后重试。'
+    formError.value = '账号已存在，请更换后重试。'
     return
   }
   if (!draft.permissions.length) {
@@ -125,7 +125,7 @@ function submitEditor() {
 
     <section class="user-management-panel">
       <div class="user-filter-row">
-        <input v-model="search" type="search" placeholder="搜索用户名或显示名称" />
+        <input v-model="search" type="search" placeholder="搜索账号或用户名" />
         <select v-model="roleFilter">
           <option value="all">全部角色</option>
           <option v-for="role in roleOptions" :key="role.key" :value="role.key">{{ role.label }}</option>
@@ -139,7 +139,7 @@ function submitEditor() {
 
       <div class="user-table-wrap">
         <table class="user-table">
-          <thead><tr><th>用户名</th><th>显示名称</th><th>角色</th><th>状态</th><th>可访问模块</th><th>更新时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>账号</th><th>用户名</th><th>角色</th><th>状态</th><th>可访问模块</th><th>更新时间</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="user in paginatedUsers" :key="user.id">
               <td><strong>{{ user.username }}</strong></td>
@@ -166,8 +166,8 @@ function submitEditor() {
         <button class="modal-close" type="button" @click="closeEditor">×</button>
         <h2>{{ editorMode === 'create' ? '新增用户' : '编辑用户' }}</h2>
         <div class="user-editor-grid">
-          <label><span>用户名</span><input v-model="draft.username" :disabled="editorMode === 'edit'" placeholder="请输入登录用户名" /></label>
-          <label><span>显示名称</span><input v-model="draft.displayName" placeholder="请输入显示名称" /></label>
+          <label><span>账号</span><input v-model="draft.username" :disabled="editorMode === 'edit'" placeholder="请输入登录用户名" /></label>
+          <label><span>用户名</span><input v-model="draft.displayName" placeholder="请输入用户名" /></label>
           <label><span>登录密码</span><input v-model="draft.password" type="text" placeholder="请输入登录密码" /></label>
           <label><span>角色</span><select v-model="draft.role" :disabled="draft.id === currentUser.id" @change="changeRole"><option v-for="role in roleOptions" :key="role.key" :value="role.key">{{ role.label }}</option></select></label>
           <label><span>账户状态</span><select v-model="draft.status" :disabled="draft.id === currentUser.id"><option value="active">正常</option><option value="disabled">已停用</option></select></label>
