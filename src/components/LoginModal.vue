@@ -15,7 +15,7 @@ const emit = defineEmits(['close', 'forgot-password', 'submit-login'])
 </script>
 
 <template>
-  <div v-if="show" class="modal-mask login-screen" @click.self="emit('close')">
+  <div v-if="show" class="modal-mask login-screen">
     <div class="login-flow-bg" aria-hidden="true">
       <span class="login-ring login-ring-a"></span>
       <span class="login-ring login-ring-b"></span>
