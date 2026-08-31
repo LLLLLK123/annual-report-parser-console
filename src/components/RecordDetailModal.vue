@@ -441,10 +441,10 @@ watch(filteredNodes, (nodes) => {
         <div class="report-detail-actions"><ReportDownloadMenu :record="record" :raw-tables="detailNodes" :full-result-nodes="fullResultNodes" /></div>
       </div>
 
-      <nav class="report-detail-tabs" aria-label="解析结果类型">
+      <!-- <nav class="report-detail-tabs" aria-label="解析结果类型">
         <button :class="{ active: detailView === 'full' }" :aria-current="detailView === 'full' ? 'page' : undefined" type="button" @click="detailView = 'full'">全量解析结果</button>
         <button :class="{ active: detailView === 'table' }" :aria-current="detailView === 'table' ? 'page' : undefined" type="button" @click="detailView = 'table'">表格解析结果</button>
-      </nav>
+      </nav> -->
 
       <section class="report-basic-grid">
         <div><span>主体名称</span><strong>{{ record.companyName || record.company }}</strong></div><div><span>CRM Code</span><strong>{{ record.crmCode || '-' }}</strong></div>
@@ -453,6 +453,11 @@ watch(filteredNodes, (nodes) => {
         <div><span>公开属性</span><strong>{{ record.scopeLabel || (record.isPublic === 1 ? '公开' : '非公开') }}</strong></div><div><span>解析状态</span><strong>{{ record.parseStatus || record.status }}</strong></div>
         <div><span>上传 / 获取时间</span><strong>{{ record.fetchedAt || record.uploadedAt }}</strong></div>
       </section>
+
+      <nav class="report-detail-tabs" aria-label="解析结果类型">
+        <button :class="{ active: detailView === 'full' }" :aria-current="detailView === 'full' ? 'page' : undefined" type="button" @click="detailView = 'full'">全量解析结果</button>
+        <button :class="{ active: detailView === 'table' }" :aria-current="detailView === 'table' ? 'page' : undefined" type="button" @click="detailView = 'table'">表格解析结果</button>
+      </nav>
 
       <section v-if="detailView === 'table'" class="report-detail-toolbar">
         <div class="report-kpis"><span>原始表格数量 <strong>{{ record.rawTableCount ?? detailNodes.length }}</strong></span><span>目标表格数量 <strong>{{ record.targetTableCount ?? detailNodes.filter((item) => item.targetCode).length }}</strong></span><span>命中表格数量 <strong>{{ record.matchedTableCount ?? detailNodes.filter((item) => item.targetCode).length }}</strong></span></div>
