@@ -17,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'back'])
 
 const selectedNodeId = ref(null)
+const selectedTargetCatalogId = ref(null)
 const nodeKeyword = ref('')
 const targetOnly = ref(false)
 const expandedTableSectionIds = ref([])
@@ -118,6 +119,88 @@ const fallbackNodeTemplates = {
   ],
 }
 
+// 目标表模式使用固定业务清单，不能根据当前报告的命中结果删减项目。
+const targetTableCatalog = [
+  '合并资产负债表', '合并利润表', '合并现金流量表',
+  '营业收入构成-分行业', '营业收入构成-分产品', '营业收入构成-分地区', '营业收入构成-分销售模式',
+  '占公司营业收入或营业利润10%以上情况-分行业', '占公司营业收入或营业利润10%以上情况-分产品',
+  '占公司营业收入或营业利润10%以上情况-分地区', '占公司营业收入或营业利润10%以上情况-分销售模式',
+  '营业收入与营业成本', '主要境外资产情况', '公司主要销售客户情况', '公司前5大客户资料',
+  '公司主要供应商情况', '公司前5名供应商资料', '主要子公司及对公司净利润影响达10%以上的参股公司情况',
+  '按欠款方归集的期末余额前五名的应收账款情况', '按预付对象归集的期末余额前五名的预付款情况',
+  '按欠款方归集的期末余额前五名的其他应收款情况', '存货分类', '账龄超过1年的重要应付账款',
+  '账龄超过1年的重要预收款项', '账龄超过1年的重要其他应付款', '本企业合营和联营企业情况',
+  '其他关联方情况', '应收账款-分类披露', '应收账款按账龄披露', '应收账款按组合计提坏账准备',
+  '应收账款-按单项计提坏账准备', '主营业务情况-分行业', '主营业务情况-分产品',
+  '主营业务情况-分地区', '主营业务情况-分模式', '营业收入与营业成本', '主营业务情况-分行业',
+  '主营业务情况-分产品', '主营业务情况-分地区', '主营业务情况-分模式',
+  '母公司资产负债表', '母公司利润表', '母公司现金流量表',
+]
+
+const targetCodeByName = {
+  '合并资产负债表': 'AN14',
+  '合并利润表': 'AN15',
+  '合并现金流量表': 'AN16',
+  '营业收入构成-分行业': 'AN01_A',
+  '营业收入构成-分产品': 'AN01_B',
+  '营业收入构成-分地区': 'AN01_C',
+  '营业收入构成-分销售模式': 'AN01_D',
+  '占公司营业收入或营业利润10%以上情况-分行业': 'AN02_A',
+  '占公司营业收入或营业利润10%以上情况-分产品': 'AN02_B',
+  '占公司营业收入或营业利润10%以上情况-分地区': 'AN02_C',
+  '占公司营业收入或营业利润10%以上情况-分销售模式': 'AN02_D',
+  '营业收入与营业成本': 'AN03',
+  '主要境外资产情况': 'AN04',
+  '公司主要销售客户情况': 'AN05_A',
+  '公司前5大客户资料': 'AN05_B',
+  '公司主要供应商情况': 'AN06_A',
+  '公司前5名供应商资料': 'AN06_B',
+  '主要子公司及对公司净利润影响达10%以上的参股公司情况': 'AN07',
+  '按欠款方归集的期末余额前五名的应收账款情况': 'AN08_A',
+  '按预付对象归集的期末余额前五名的预付款情况': 'AN08_B',
+  '按欠款方归集的期末余额前五名的其他应收款情况': 'AN08_C',
+  '存货分类': 'AN09',
+  '账龄超过1年的重要应付账款': 'AN10_A',
+  '账龄超过1年的重要预收款项': 'AN10_B',
+  '账龄超过1年的重要其他应付款': 'AN10_C',
+  '本企业合营和联营企业情况': 'AN11_A',
+  '其他关联方情况': 'AN11_B',
+  '应收账款-分类披露': 'AN12_A',
+  '应收账款按账龄披露': 'AN12_B',
+  '应收账款按组合计提坏账准备': 'AN12_C',
+  '应收账款-按单项计提坏账准备': 'AN12_D',
+  '主营业务情况-分行业': 'AN13_A',
+  '主营业务情况-分产品': 'AN13_B',
+  '主营业务情况-分地区': 'AN13_C',
+  '主营业务情况-分模式': 'AN13_D',
+  '母公司资产负债表': 'AN14_M',
+  '母公司利润表': 'AN15_M',
+  '母公司现金流量表': 'AN16_M',
+}
+
+const normalizeTargetName = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/[\s_－—–-]/g, '')
+  .replace(/[（）()：:，,、]/g, '')
+
+const inferTargetCode = (name, existingCode) => {
+  if (existingCode) return existingCode
+
+  const normalizedName = normalizeTargetName(name)
+  if (!normalizedName) return null
+
+  const matchedEntry = Object.entries(targetCodeByName).find(([targetName]) => {
+    const normalizedTargetName = normalizeTargetName(targetName)
+    return normalizedTargetName && (
+      normalizedName === normalizedTargetName ||
+      normalizedName.includes(normalizedTargetName) ||
+      normalizedTargetName.includes(normalizedName)
+    )
+  })
+
+  return matchedEntry?.[1] || null
+}
+
 const buildFallbackMarkdown = (name) => {
   if (name.includes('资产负债表')) {
     return `| 项目 | 本期 | 上期 |
@@ -161,14 +244,17 @@ const detailNodes = computed(() => {
   if (!props.record) return []
 
   if (props.record.rawTables?.length) {
-    return props.record.rawTables.map((item, index) => ({
-      id: item.id || `${props.record.id}-raw-${index}`,
-      name: item.name || item.table_title || `表格 ${index + 1}`,
-      pageRange: item.pageRange || `${item.page_start || 1}-${item.page_end || item.page_start || 1}`,
-      location: item.location || item.node_path || 'PageIndex 节点',
-      markdown: item.markdown || item.markdown_table || buildFallbackMarkdown(item.name || `表格 ${index + 1}`),
-      targetCode: item.targetCode || item.table_code || null,
-    }))
+    return props.record.rawTables.map((item, index) => {
+      const nodeName = item.name || item.table_title || `表格 ${index + 1}`
+      return {
+        id: item.id || `${props.record.id}-raw-${index}`,
+        name: nodeName,
+        pageRange: item.pageRange || `${item.page_start || 1}-${item.page_end || item.page_start || 1}`,
+        location: item.location || item.node_path || 'PageIndex 节点',
+        markdown: item.markdown || item.markdown_table || buildFallbackMarkdown(nodeName),
+        targetCode: inferTargetCode(nodeName, item.targetCode || item.table_code),
+      }
+    })
   }
 
   const uploadMatches = uploadReportInformationRows.filter(
@@ -182,14 +268,17 @@ const detailNodes = computed(() => {
 
   const merged = [...uploadMatches, ...rawMatches]
   if (merged.length) {
-    return merged.map((item, index) => ({
-      id: `${props.record.id}-node-${item.id}-${index}`,
-      name: item.table_title || item.node_title || `Node ${index + 1}`,
-      pageRange: `${item.page_start || 1}-${item.page_end || item.page_start || 1}`,
-      location: item.node_path || 'PageIndex 节点',
-      markdown: item.markdown_table || buildFallbackMarkdown(item.table_title || item.node_title || `Node ${index + 1}`),
-      targetCode: item.table_code || null,
-    }))
+    return merged.map((item, index) => {
+      const nodeName = item.table_title || item.node_title || `Node ${index + 1}`
+      return {
+        id: `${props.record.id}-node-${item.id}-${index}`,
+        name: nodeName,
+        pageRange: `${item.page_start || 1}-${item.page_end || item.page_start || 1}`,
+        location: item.node_path || 'PageIndex 节点',
+        markdown: item.markdown_table || buildFallbackMarkdown(nodeName),
+        targetCode: inferTargetCode(nodeName, item.table_code),
+      }
+    })
   }
 
   const typeKey = props.record.typeKey || 'financial'
@@ -199,22 +288,96 @@ const detailNodes = computed(() => {
     pageRange: `${88 + index * 4}-${91 + index * 4}`,
     location: `${reportTypeLabelMap[typeKey] || props.record.type} / ${item.name}`,
     markdown: buildFallbackMarkdown(item.name),
-    targetCode: item.targetCode,
+    targetCode: inferTargetCode(item.name, item.targetCode),
   }))
 })
 
-const selectedNode = computed(() => detailNodes.value.find((item) => item.id === selectedNodeId.value) || filteredNodes.value[0] || null)
+const targetCatalogRows = computed(() => {
+  const recordTargets = props.record?.targetTables || []
+
+  return targetTableCatalog.map((name, index) => {
+    const normalizedName = normalizeTargetName(name)
+    const expectedCode = targetCodeByName[name]
+    const matchedNode = detailNodes.value.find((node) => {
+      const normalizedNodeName = normalizeTargetName(node.name)
+      return (expectedCode && node.targetCode === expectedCode) ||
+        (normalizedNodeName && (
+          normalizedNodeName === normalizedName ||
+          normalizedNodeName.includes(normalizedName) ||
+          normalizedName.includes(normalizedNodeName)
+        ))
+    })
+    const matchedTarget = recordTargets.find((target) => {
+      const normalizedTargetName = normalizeTargetName(target.name || target.tableName || target.task_name)
+      return (expectedCode && target.code === expectedCode) ||
+        (normalizedTargetName && (
+          normalizedTargetName === normalizedName ||
+          normalizedTargetName.includes(normalizedName) ||
+          normalizedName.includes(normalizedTargetName)
+        ))
+    })
+
+    return {
+      id: `target-catalog-${index}`,
+      name,
+      code: expectedCode || matchedNode?.targetCode || matchedTarget?.code || null,
+      exists: Boolean(matchedNode),
+      nodeId: matchedNode?.id || null,
+      target: matchedTarget || null,
+    }
+  })
+})
+
+const selectedTargetCatalogItem = computed(() =>
+  targetCatalogRows.value.find((item) => item.id === selectedTargetCatalogId.value) || null,
+)
+
+const visibleTargetCatalogRows = computed(() => {
+  const keyword = normalizeTargetName(nodeKeyword.value)
+  return keyword
+    ? targetCatalogRows.value.filter((item) => normalizeTargetName(item.name).includes(keyword))
+    : targetCatalogRows.value
+})
+
+const matchedTargetNodeIds = computed(() => new Set(
+  targetCatalogRows.value.filter((item) => item.exists && item.nodeId).map((item) => item.nodeId),
+))
+
+const selectedNode = computed(() => {
+  const node = detailNodes.value.find((item) => item.id === selectedNodeId.value)
+  if (node) return node
+
+  if (targetOnly.value && selectedTargetCatalogItem.value) {
+    const targetItem = selectedTargetCatalogItem.value
+    return {
+      id: targetItem.id,
+      name: targetItem.name,
+      pageRange: targetItem.target?.pageRange || '--',
+      location: targetItem.target?.rawTableLocation || '目标表清单',
+      markdown: targetItem.target?.markdown || buildFallbackMarkdown(targetItem.name),
+      targetCode: targetItem.code,
+      isMissingTargetNode: !targetItem.nodeId,
+    }
+  }
+
+  return filteredNodes.value[0] || null
+})
 
 const filteredNodes = computed(() => {
   const keyword = nodeKeyword.value.trim().toLowerCase()
   return detailNodes.value.filter((item) =>
-    (!targetOnly.value || item.targetCode) &&
+    (!targetOnly.value || matchedTargetNodeIds.value.has(item.id)) &&
     (!keyword ||
     [item.name, item.location, item.targetCode]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(keyword))),
   )
 })
+
+const selectTargetCatalogItem = (item) => {
+  selectedTargetCatalogId.value = item.id
+  selectedNodeId.value = item.nodeId || null
+}
 
 const reportPeriod = computed(() => props.record?.reportPeriod || props.record?.quarter || '年报')
 const latestReportPeriod = computed(() => props.record?.latestReportPeriod || `${props.record?.year || ''}${reportPeriod.value === '年报' ? 'FY' : reportPeriod.value === '半年报' ? 'H1' : reportPeriod.value === '一季报' ? 'Q1' : 'Q3'}`)
@@ -231,13 +394,27 @@ const pdfEmbedUrl = computed(() => {
   return `${props.record.fileUrl}#page=${page}&zoom=page-width&toolbar=0&navpanes=0&scrollbar=1`
 })
 
+const currentTargetCode = computed(() => selectedTargetCatalogItem.value?.code || selectedNode.value?.targetCode || '')
+const currentTargetName = computed(() => selectedTargetCatalogItem.value?.name || selectedNode.value?.name || '暂无目标表')
+
+const detailRawTableCount = computed(() => props.record?.rawTables?.length || props.record?.rawTableCount || detailNodes.value.length)
+const detailTargetTableCount = computed(() => targetCatalogRows.value.length)
+const detailMatchedTableCount = computed(() => targetCatalogRows.value.filter((item) => item.exists).length)
+
 const structuredRows = computed(() => {
-  if (!props.record || !selectedNode.value?.targetCode) return []
+  if (!props.record || !currentTargetCode.value) return []
 
   // 优先读取当前报告自身的目标表结构化结果
-  const recordTarget = props.record.targetTables?.find(
-    (item) => item.code === selectedNode.value.targetCode,
-  )
+  const normalizedCurrentName = normalizeTargetName(currentTargetName.value)
+  const recordTarget = props.record.targetTables?.find((item) => {
+    const normalizedTargetName = normalizeTargetName(item.name || item.tableName || item.task_name)
+    return item.code === currentTargetCode.value ||
+      (normalizedTargetName && normalizedCurrentName && (
+        normalizedTargetName === normalizedCurrentName ||
+        normalizedTargetName.includes(normalizedCurrentName) ||
+        normalizedCurrentName.includes(normalizedTargetName)
+      ))
+  })
 
   if (recordTarget?.structured?.rows?.length) {
     return recordTarget.structured.rows
@@ -249,7 +426,7 @@ const structuredRows = computed(() => {
       (item) =>
         item.crm_code === props.record.crmCode &&
         item.basic_year === Number(props.record.year) &&
-        selectedNode.value.name.includes(item.title),
+        (selectedNode.value?.name || currentTargetName.value).includes(item.title),
     )
     .map((item) => ({
       label: item.report_item_name,
@@ -260,12 +437,12 @@ const structuredRows = computed(() => {
 
   if (majorRows.length) return majorRows
 
-  return structuredNotesRows
+  const noteRows = structuredNotesRows
     .filter(
       (item) =>
         item.crm_code === props.record.crmCode &&
         item.basic_year === Number(props.record.year) &&
-        item.title === selectedNode.value.targetCode,
+        item.title === currentTargetCode.value,
     )
     .map((item) => ({
       label: item.item,
@@ -273,6 +450,21 @@ const structuredRows = computed(() => {
       unit: item.unit || '--',
       code: item.code || '--',
     }))
+
+  if (noteRows.length) return noteRows
+
+  if (parsedNodeTable.value.rows.length) {
+    const headers = parsedNodeTable.value.headers
+    const valueIndex = headers.length > 1 ? 1 : 0
+    return parsedNodeTable.value.rows.slice(0, 12).map((row, index) => ({
+      label: row[0] || `字段 ${index + 1}`,
+      value: row[valueIndex] || '--',
+      unit: '--',
+      code: `${currentTargetCode.value}_${String(index + 1).padStart(2, '0')}`,
+    }))
+  }
+
+  return []
 })
 
 const parsedNodeTable = computed(() => parseMarkdownTable(selectedNode.value?.markdown || ''))
@@ -410,6 +602,7 @@ watch(
   () => [props.show, props.record?.id],
   () => {
     selectedNodeId.value = detailNodes.value[0]?.id || null
+    selectedTargetCatalogId.value = null
     nodeKeyword.value = ''
     targetOnly.value = false
     showPdfDrawer.value = false
@@ -422,7 +615,20 @@ watch(
   { immediate: true },
 )
 
+watch(targetOnly, (enabled) => {
+  if (enabled) {
+    const firstTarget = visibleTargetCatalogRows.value.find((item) => item.exists && item.nodeId)
+    selectedTargetCatalogId.value = firstTarget?.id || null
+    selectedNodeId.value = firstTarget?.nodeId || null
+    return
+  }
+
+  selectedTargetCatalogId.value = null
+  selectedNodeId.value = filteredNodes.value[0]?.id || detailNodes.value[0]?.id || null
+})
+
 watch(filteredNodes, (nodes) => {
+  if (targetOnly.value) return
   if (!nodes.some((node) => node.id === selectedNodeId.value)) {
     selectedNodeId.value = nodes[0]?.id || null
   }
@@ -460,24 +666,40 @@ watch(filteredNodes, (nodes) => {
       </nav>
 
       <section v-if="detailView === 'table'" class="report-detail-toolbar">
-        <div class="report-kpis"><span>原始表格数量 <strong>{{ record.rawTableCount ?? detailNodes.length }}</strong></span><span>目标表格数量 <strong>{{ record.targetTableCount ?? detailNodes.filter((item) => item.targetCode).length }}</strong></span><span>命中表格数量 <strong>{{ record.matchedTableCount ?? detailNodes.filter((item) => item.targetCode).length }}</strong></span></div>
+        <div class="report-kpis"><span>原始表格数量 <strong>{{ detailRawTableCount }}</strong></span><span>目标表格数量 <strong>{{ detailTargetTableCount }}</strong></span><span>命中表格数量 <strong>{{ detailMatchedTableCount }}</strong></span></div>
         <label class="target-only-toggle"><input v-model="targetOnly" type="checkbox" />只查看目标表</label>
       </section>
 
       <div v-if="detailView === 'table'" class="library-preview-grid resizable-result-grid" :style="resultGridStyle">
         <article class="library-result-card">
           <div class="library-result-card-head">
-            <span>章节导航</span>
-            <h3>章节 / 表名</h3>
+            <span>{{ targetOnly ? '目标表导航' : '章节导航' }}</span>
+            <h3>{{ targetOnly ? '目标表清单' : '章节 / 表名' }}</h3>
           </div>
           <div class="library-node-filter">
             <input
               v-model="nodeKeyword"
               type="text"
-              placeholder="搜索章节或表名"
+              :placeholder="targetOnly ? '搜索目标表名称' : '搜索章节或表名'"
             />
           </div>
-          <div class="report-full-tree-list table-result-tree-list">
+          <div v-if="targetOnly" class="target-table-catalog-list table-result-tree-list">
+            <button
+              v-for="item in visibleTargetCatalogRows"
+              :key="item.id"
+              :class="['target-table-catalog-item', { active: item.nodeId && selectedTargetCatalogItem?.id === item.id }]"
+              :disabled="!item.exists || !item.nodeId"
+              type="button"
+              @click="selectTargetCatalogItem(item)"
+            >
+              <span>{{ item.name }}</span>
+              <i :class="['target-table-status-dot', item.exists ? 'present' : 'missing']" :title="item.exists ? '当前报告存在该目标表' : '当前报告不存在该目标表'" />
+            </button>
+            <div v-if="!visibleTargetCatalogRows.length" class="library-empty-table compact">
+              未找到匹配的目标表名称
+            </div>
+          </div>
+          <div v-else class="report-full-tree-list table-result-tree-list">
             <button
               v-for="node in visibleTableTreeNodes"
               :key="node.id"
@@ -542,8 +764,8 @@ watch(filteredNodes, (nodes) => {
           </div>
           <div class="library-table-preview">
             <div class="library-table-preview-head">
-              <strong>{{ selectedNode?.targetCode || '暂无目标表编码' }}</strong>
-              <span v-if="selectedNode?.targetCode">目标表编码：{{ selectedNode.targetCode }}</span>
+              <strong>{{ currentTargetName }}</strong>
+              <span v-if="currentTargetCode">目标表编码：{{ currentTargetCode }}</span>
               <span v-else>当前 node 暂未命中目标表</span>
             </div>
             <div class="library-data-table-wrap">

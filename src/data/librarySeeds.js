@@ -778,6 +778,51 @@ const realFinancialRawTables = [
   },
 ]
 
+const realTargetCodeByName = {
+  '合并资产负债表': 'AN14',
+  '合并利润表': 'AN15',
+  '合并现金流量表': 'AN16',
+  '营业收入构成-分行业': 'AN01_A',
+  '营业收入构成-分产品': 'AN01_B',
+  '营业收入构成-分地区': 'AN01_C',
+  '营业收入构成-分销售模式': 'AN01_D',
+  '营业收入与营业成本': 'AN03',
+  '主要境外资产情况': 'AN04',
+  '公司主要销售客户情况': 'AN05_A',
+  '公司前5大客户资料': 'AN05_B',
+  '公司主要供应商情况': 'AN06_A',
+  '公司前5名供应商资料': 'AN06_B',
+  '存货分类': 'AN09',
+  '应收账款-分类披露': 'AN12_A',
+  '应收账款按账龄披露': 'AN12_B',
+  '母公司资产负债表': 'AN14_M',
+  '母公司利润表': 'AN15_M',
+  '母公司现金流量表': 'AN16_M',
+}
+
+const normalizeTargetTableName = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/[\s_－—–-]/g, '')
+  .replace(/[（）()：:，,、]/g, '')
+
+const inferRealTargetCode = (name, existingCode) => {
+  if (existingCode) return existingCode
+
+  const normalizedName = normalizeTargetTableName(name)
+  const matchedEntry = Object.entries(realTargetCodeByName).find(([targetName]) => {
+    const normalizedTargetName = normalizeTargetTableName(targetName)
+    return normalizedName === normalizedTargetName ||
+      normalizedName.includes(normalizedTargetName) ||
+      normalizedTargetName.includes(normalizedName)
+  })
+
+  return matchedEntry?.[1] || null
+}
+
+realFinancialRawTables.forEach((item) => {
+  item.targetCode = inferRealTargetCode(item.name, item.targetCode)
+})
+
 const realFinancialTargetTables = realFinancialRawTables
   .filter((item) => item.targetCode)
   .map((item, index) => ({

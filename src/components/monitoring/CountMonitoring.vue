@@ -12,10 +12,13 @@ const props = defineProps({
 const activeSectionKey = ref(props.countSections[0]?.key || 'public')
 const activeRangeKey = ref(props.rangeOptions[0]?.key || 'today')
 const activeReportType = ref('all')
-const companyKeyword = ref('')
-const crmKeyword = ref('')
+const entityKeyword = ref('')
 const activeStatus = ref('all')
+const activeReportYear = ref('all')
 const activeReportPeriod = ref('all')
+const activeMissingStatus = ref('all')
+const activeThresholdStatus = ref('all')
+const createTimeSort = ref('desc')
 const taskPageSize = ref(10)
 const taskCurrentPage = ref(1)
 const taskJumpPageInput = ref('1')
@@ -104,10 +107,6 @@ const reportTypeOptions = computed(() => {
 const filteredSectionRows = computed(() => {
   return sectionRows.value.filter((row) => {
     if (activeReportType.value !== 'all' && row.normalizedReportType !== activeReportType.value) return false
-    if (activeStatus.value !== 'all' && row.normalizedStatus !== activeStatus.value) return false
-    if (activeReportPeriod.value !== 'all' && String(row.report_quarter) !== activeReportPeriod.value) return false
-    if (companyKeyword.value.trim() && !row.company_name?.toLowerCase().includes(companyKeyword.value.trim().toLowerCase())) return false
-    if (crmKeyword.value.trim() && !row.crmcode?.toLowerCase().includes(crmKeyword.value.trim().toLowerCase())) return false
     return true
   })
 })
@@ -127,6 +126,25 @@ const reportPeriodOptions = [
   { value: '3', label: '三季报' },
   { value: '4', label: '年报' },
 ]
+
+const missingStatusOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'missing', label: '缺失' },
+  { value: 'normal', label: '正常' },
+]
+
+const thresholdStatusOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'abnormal', label: '异常' },
+  { value: 'normal', label: '正常' },
+]
+
+const reportYearOptions = computed(() => [
+  { value: 'all', label: '全部年份' },
+  ...[...new Set(monitoredWindowRows.value.map((row) => String(row.report_year)).filter(Boolean))]
+    .sort((a, b) => Number(b) - Number(a))
+    .map((value) => ({ value, label: value })),
+])
 
 const dateWindow = computed(() => {
   const end = parseDate(`${todayKey} 23:59:59`)
@@ -171,11 +189,35 @@ const kpiSummary = computed(() => {
   ]
 })
 
-const taskMonitorRows = computed(() => monitoredWindowRows.value.map((row, index) => {
-    const monitorTables = buildCompletedTableStatus(row, index)
-    const alerts = row.normalizedStatus === 'success' ? buildCompletedAlertItems({ ...row, monitorTables }) : []
-    return { ...row, monitorTables, alerts }
-  }))
+const taskMonitorRows = computed(() => {
+  const keyword = entityKeyword.value.trim().toLowerCase()
+  return monitoredWindowRows.value
+    .filter((row) => {
+      if (activeStatus.value !== 'all' && row.normalizedStatus !== activeStatus.value) return false
+      if (activeReportYear.value !== 'all' && String(row.report_year) !== activeReportYear.value) return false
+      if (activeReportPeriod.value !== 'all' && String(row.report_quarter) !== activeReportPeriod.value) return false
+      if (!keyword) return true
+      return row.company_name?.toLowerCase().includes(keyword) || row.crmcode?.toLowerCase().includes(keyword)
+    })
+    .map((row, index) => {
+      const monitorTables = buildCompletedTableStatus(row, index)
+      const alerts = row.normalizedStatus === 'success' ? buildCompletedAlertItems({ ...row, monitorTables }) : []
+      return { ...row, monitorTables, alerts }
+    })
+    .filter((row) => {
+      const hasMissing = row.alerts.some((item) => item.key.startsWith('no_'))
+      const hasLowRows = row.alerts.some((item) => item.key.startsWith('low_'))
+      if (activeMissingStatus.value === 'missing' && !hasMissing) return false
+      if (activeMissingStatus.value === 'normal' && hasMissing) return false
+      if (activeThresholdStatus.value === 'abnormal' && !hasLowRows) return false
+      if (activeThresholdStatus.value === 'normal' && hasLowRows) return false
+      return true
+    })
+    .sort((a, b) => {
+      const difference = (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0)
+      return createTimeSort.value === 'asc' ? difference : -difference
+    })
+})
 
 const taskTotalCount = computed(() => taskMonitorRows.value.length)
 const taskTotalPages = computed(() => Math.max(1, Math.ceil(taskTotalCount.value / taskPageSize.value)))
@@ -194,10 +236,13 @@ const submitTaskJumpPage = () => setTaskPage(Number(taskJumpPageInput.value) || 
 const resetCountFilters = () => {
   activeRangeKey.value = props.rangeOptions[0]?.key || 'today'
   activeReportType.value = 'all'
+  activeReportYear.value = 'all'
   activeReportPeriod.value = 'all'
   activeStatus.value = 'all'
-  companyKeyword.value = ''
-  crmKeyword.value = ''
+  activeMissingStatus.value = 'all'
+  activeThresholdStatus.value = 'all'
+  createTimeSort.value = 'desc'
+  entityKeyword.value = ''
 }
 
 const trendPoints = computed(() => {
@@ -441,7 +486,7 @@ const submitCompletedJumpPage = () => {
 }
 
 watch(
-  [activeSectionKey, activeRangeKey, activeReportType, activeReportPeriod, activeStatus, companyKeyword, crmKeyword, taskPageSize],
+  [activeSectionKey, activeRangeKey, activeReportType, activeReportYear, activeReportPeriod, activeStatus, activeMissingStatus, activeThresholdStatus, createTimeSort, entityKeyword, taskPageSize],
   () => {
     taskCurrentPage.value = 1
     taskJumpPageInput.value = '1'
@@ -474,13 +519,6 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
       <div class="count-filter-grid">
         <label class="field"><span>统计范围</span><select v-model="activeRangeKey"><option v-for="item in rangeOptions" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
         <label class="field"><span>报告类型</span><select v-model="activeReportType"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-        <!-- 暂时隐藏报告期、公司名称、CRM Code 和任务状态筛选，保留对应逻辑供后续调整。 -->
-        <!--
-        <label class="field"><span>报告期</span><select v-model="activeReportPeriod"><option v-for="item in reportPeriodOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-        <label class="field"><span>公司名称</span><input v-model="companyKeyword" placeholder="请输入公司名称" /></label>
-        <label class="field"><span>CRM Code</span><input v-model="crmKeyword" placeholder="请输入CRM Code" /></label>
-        <label class="field"><span>任务状态</span><select v-model="activeStatus"><option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-        -->
       </div>
       <div class="count-filter-actions">
         <button class="primary-btn compact" type="button">查询</button>
@@ -507,23 +545,27 @@ const windowText = computed(() => `${formatDayKey(dateWindow.value.start)} 至 $
 
       <article class="workbench-panel monitor-detail-panel count-task-panel">
         <div class="monitor-filter-head"><h3>报告数量监测清单</h3></div>
+        <div class="count-list-search">
+          <input v-model="entityKeyword" aria-label="搜索公司名称或 CRM Code" placeholder="搜索公司名称 / CRM Code" />
+        </div>
         <div class="history-table-wrap">
           <table class="history-table count-task-table">
-            <thead><tr><th>报告名称</th><th>公司名称</th><th>CRM Code</th><th>报告类型</th><th>报告期</th><th>识别状态</th><th>三表是否缺失</th><th>任务是否低于阈值</th><th>新增时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>报告名称</th><th>公司名称</th><th>CRM Code</th><th>报告类型</th><th><label class="count-header-filter"><span>年份</span><select v-model="activeReportYear" aria-label="筛选年份"><option v-for="item in reportYearOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></th><th><label class="count-header-filter"><span>报告期</span><select v-model="activeReportPeriod" aria-label="筛选报告期"><option v-for="item in reportPeriodOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></th><th><label class="count-header-filter"><span>识别状态</span><select v-model="activeStatus" aria-label="筛选任务状态"><option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></th><th><label class="count-header-filter"><span>三表是否缺失</span><select v-model="activeMissingStatus" aria-label="筛选三表是否缺失"><option v-for="item in missingStatusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></th><th><label class="count-header-filter"><span>任务是否低于阈值</span><select v-model="activeThresholdStatus" aria-label="筛选任务是否低于阈值"><option v-for="item in thresholdStatusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></th><th><button class="count-sort-trigger" type="button" @click="createTimeSort = createTimeSort === 'desc' ? 'asc' : 'desc'">新增时间 <span>{{ createTimeSort === 'desc' ? '↓' : '↑' }}</span></button></th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in paginatedTaskRows" :key="row.id">
                 <td>{{ row.file_name }}</td>
                 <td>{{ row.company_name }}</td>
                 <td>{{ row.crmcode }}</td>
                 <td>{{ reportTypeLabelMap[row.normalizedReportType] || row.normalizedReportType }}</td>
-                <td>{{ row.report_year }}{{ quarterLabelMap[row.report_quarter] || row.report_quarter }}</td>
+                <td>{{ row.report_year }}</td>
+                <td>{{ quarterLabelMap[row.report_quarter] || row.report_quarter }}</td>
                 <td><span :class="['status-pill', statusClassMap[row.normalizedStatus]]">{{ statusLabelMap[row.normalizedStatus] }}</span></td>
                 <td><span :class="['status-pill', row.alerts.some((item) => item.key.startsWith('no_')) ? 'danger' : 'success']">{{ row.alerts.some((item) => item.key.startsWith('no_')) ? '缺失' : '正常' }}</span></td>
                 <td><span :class="['status-pill', row.alerts.some((item) => item.key.startsWith('low_')) ? 'danger' : 'success']">{{ row.alerts.some((item) => item.key.startsWith('low_')) ? '异常' : '正常' }}</span></td>
                 <td>{{ row.create_time.slice(0, 16) }}</td>
                 <td><button class="quad-link page-btn count-detail-btn" type="button" @click="selectedTaskDetail = row">查看详情</button></td>
               </tr>
-              <tr v-if="!paginatedTaskRows.length"><td colspan="10" class="empty-row">当前筛选条件下暂无任务</td></tr>
+              <tr v-if="!paginatedTaskRows.length"><td colspan="11" class="empty-row">当前筛选条件下暂无任务</td></tr>
             </tbody>
           </table>
           <div class="history-pagination">
